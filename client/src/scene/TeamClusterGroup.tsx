@@ -10,6 +10,7 @@ interface TeamClusterGroupProps {
   desks: Record<string, DeskPlacement>;
   selectedAgentId: string | null;
   showLabels: boolean;
+  roamingAgentIds?: ReadonlySet<string>;
   onSelectAgent: (agentId: string) => void;
 }
 
@@ -19,6 +20,7 @@ export const TeamClusterGroup: React.FC<TeamClusterGroupProps> = ({
   desks,
   selectedAgentId,
   showLabels,
+  roamingAgentIds,
   onSelectAgent,
 }) => {
   const [cx, cy, cz] = cluster.center;
@@ -64,6 +66,7 @@ export const TeamClusterGroup: React.FC<TeamClusterGroupProps> = ({
             isLead={placement.isLead}
             isSelected={selectedAgentId === agentId}
             showLabels={showLabels}
+            isAway={roamingAgentIds?.has(agentId) ?? false}
             onSelect={onSelectAgent}
           />
         );

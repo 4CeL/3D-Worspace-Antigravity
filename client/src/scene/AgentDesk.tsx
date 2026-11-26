@@ -10,6 +10,7 @@ interface AgentDeskProps {
   isLead: boolean;
   isSelected: boolean;
   showLabels: boolean;
+  isAway?: boolean;
   onSelect: (agentId: string) => void;
 }
 
@@ -37,6 +38,7 @@ export const AgentDesk: React.FC<AgentDeskProps> = ({
   isLead,
   isSelected,
   showLabels,
+  isAway = false,
   onSelect,
 }) => {
   const [hovered, setHovered] = useState(false);
@@ -180,11 +182,11 @@ export const AgentDesk: React.FC<AgentDeskProps> = ({
         </mesh>
       </group>
 
-      {/* Stylized character */}
-      <AgentAvatar status={agent.status} isLead={isLead} seed={agent.id} />
+      {/* Stylized character (hidden while roaming away from desk) */}
+      {!isAway && <AgentAvatar status={agent.status} isLead={isLead} seed={agent.id} />}
 
-      {/* Floating desk file badge */}
-      {(showLabels || isSelected) && (
+      {/* Floating desk file badge (rendered on RoamingAgent while away) */}
+      {!isAway && (showLabels || isSelected) && (
         <Html position={[0, 2.38, 0]} center distanceFactor={14} zIndexRange={[10, 0]}>
           <button
             type="button"

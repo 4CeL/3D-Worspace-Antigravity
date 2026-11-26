@@ -1,11 +1,31 @@
-import React, { useMemo } from 'react';
-import { Canvas } from '@react-three/fiber';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Canvas, useFrame } from '@react-three/fiber';
 import type { OfficeSnapshot } from '@office/shared';
 import { FLOOR_HEIGHT, computeOfficeLayout } from './officeLayout';
 import { OfficeRoom } from './OfficeRoom';
 import { TeamClusterGroup } from './TeamClusterGroup';
 import { ConnectionArcs } from './ConnectionArcs';
 import { CameraRig } from './CameraRig';
+import { RoamingController } from './roamingEngine';
+import { RoamingAgent } from './RoamingAgent';
+
+interface RoamingOrchestratorProps {
+  controller: RoamingController;
+  onRoamingIdsChange: (next: Set<string>) => void;
+}
+
+const RoamingOrchestrator: React.FC<RoamingOrchestratorProps> = ({
+  controller,
+  onRoamingIdsChange,
+}) => {
+  useFrame((_, delta) => {
+    const changed = controller.step(Math.min(delta, 0.1));
+    if (changed) {
+      onRoamingIdsChange(controller.getRoamingAgentIds());
+    }
+  });
+  return null;
+};
 
 interface OfficeCanvasProps {
   snapshot: OfficeSnapshot;
@@ -37,6 +57,21 @@ export const OfficeCanvas: React.FC<OfficeCanvasProps> = ({
     [snapshot.clusters, snapshot.agents, snapshot.floors],
   );
 
+  const roamingControllerRef = useRef<RoamingController | null>(null);
+  if (!roamingControllerRef.current) {
+    roamingControllerRef.current = new RoamingController();
+  }
+  const roamingController = roamingControllerRef.current;
+
+  const [roamingAgentIds, setRoamingAgentIds] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    const changed = roamingController.syncLayout(layout, snapshot.agents);
+    if (changed) {
+      setRoamingAgentIds(roamingController.getRoamingAgentIds());
+    }
+  }, [roamingController, layout, snapshot.agents]);
+
   // Cutaway visibility: hide floors strictly above focusedFloorIndex so they never block the view
   const visibleFloors = useMemo(
     () =>
@@ -67,9 +102,25 @@ export const OfficeCanvas: React.FC<OfficeCanvasProps> = ({
 
   const focusTarget = useMemo<[number, number, number] | null>(() => {
     if (!focusAgentId) return null;
+    const live = roamingController.getState(focusAgentId);
+    if (live && live.mode !== 'seated') {
+      return [live.x, live.y, live.z];
+    }
     const desk = layout.desks[focusAgentId];
     return desk ? desk.position : null;
-  }, [focusAgentId, layout.desks]);
+  }, [focusAgentId, focusNonce, layout.desks, roamingController]);
+
+  const visibleRoamingAgents = useMemo(() => {
+    const out: Array<typeof snapshot.agents[string]> = [];
+    for (const agentId of roamingAgentIds) {
+      const agent = snapshot.agents[agentId];
+      const desk = visibleDesks[agentId];
+      if (agent && desk) {
+        out.push(agent);
+      }
+    }
+    return out;
+  }, [roamingAgentIds, snapshot.agents, visibleDesks]);
 
   return (
     <div className="h-full w-full">
@@ -99,6 +150,11 @@ export const OfficeCanvas: React.FC<OfficeCanvasProps> = ({
         />
         <directionalLight position={[-12, 12 + totalHeight * 0.4, -10]} intensity={0.35} color="#dbeafe" />
 
+        <RoamingOrchestrator
+          controller={roamingController}
+          onRoamingIdsChange={setRoamingAgentIds}
+        />
+
         {visibleFloors.map((floor, idx) => {
           const isTopVisible = idx === visibleFloors.length - 1;
           const isFocused = focusedFloorIndex === floor.index;
@@ -126,12 +182,24 @@ export const OfficeCanvas: React.FC<OfficeCanvasProps> = ({
                   desks={visibleDesks}
                   selectedAgentId={selectedAgentId}
                   showLabels={showLabels}
+                  roamingAgentIds={roamingAgentIds}
                   onSelectAgent={(id) => onSelectAgent(id)}
                 />
               ))}
             </React.Fragment>
           );
         })}
+
+        {visibleRoamingAgents.map((agent) => (
+          <RoamingAgent
+            key={agent.id}
+            agent={agent}
+            controller={roamingController}
+            isSelected={selectedAgentId === agent.id}
+            showLabels={showLabels}
+            onSelect={(id) => onSelectAgent(id)}
+          />
+        ))}
 
         <ConnectionArcs
           agents={snapshot.agents}

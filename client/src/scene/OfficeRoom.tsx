@@ -3,6 +3,7 @@ import { Html } from '@react-three/drei';
 import type { FloorTheme } from '@office/shared';
 import { FLOOR_HEIGHT } from './officeLayout';
 import { FloorDecor } from './FloorDecor';
+import { RoomPartitions } from './RoomPartitions';
 
 interface OfficeRoomProps {
   floorWidth: number;
@@ -213,12 +214,17 @@ export const OfficeRoom: React.FC<OfficeRoomProps> = ({
         </group>
       ))}
 
-      {/* Theme-aware cozy isometric perimeter decor */}
+      {/* Theme-aware cozy isometric perimeter decor & architectural room partitions */}
       <FloorDecor
         floorWidth={floorWidth}
         floorDepth={floorDepth}
         theme={floorTheme ?? 'engineering'}
         floorIndex={floorIndex}
+      />
+      <RoomPartitions
+        floorWidth={floorWidth}
+        floorDepth={floorDepth}
+        theme={floorTheme ?? 'engineering'}
       />
 
       {/* Exterior clickable floor badge on front-right slab edge */}
