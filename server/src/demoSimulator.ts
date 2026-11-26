@@ -1,0 +1,370 @@
+import type {
+  ActivePulse,
+  AgentNode,
+  AgentStatus,
+  FileAction,
+  OfficeSnapshot,
+  TeamCluster,
+} from '@office/shared';
+
+interface DemoPhase {
+  leadStatus: AgentStatus;
+  leadFile?: { fileName: string; path: string; action: FileAction };
+  leadSummary: string;
+  sub1Status: AgentStatus;
+  sub1File?: { fileName: string; path: string; action: FileAction };
+  sub1Summary: string;
+  sub2Status: AgentStatus;
+  sub2File?: { fileName: string; path: string; action: FileAction };
+  sub2Summary: string;
+  pulse?: { from: string; to: string };
+}
+
+const PHASES: DemoPhase[] = [
+  {
+    leadStatus: 'editing',
+    leadFile: { fileName: 'OfficeCanvas.tsx', path: 'D:\\Projects\\3D Workspace\\client\\src\\scene\\OfficeCanvas.tsx', action: 'edit' },
+    leadSummary: 'Mengedit OfficeCanvas.tsx',
+    sub1Status: 'reading',
+    sub1File: { fileName: 'stateStore.ts', path: 'D:\\Projects\\3D Workspace\\server\\src\\stateStore.ts', action: 'read' },
+    sub1Summary: 'Membaca stateStore.ts',
+    sub2Status: 'running',
+    sub2Summary: 'Menjalankan vitest suite',
+    pulse: { from: 'demo-lead-1', to: 'demo-sub-1' },
+  },
+  {
+    leadStatus: 'delegating',
+    leadFile: { fileName: 'InspectorDrawer.tsx', path: 'D:\\Projects\\3D Workspace\\client\\src\\ui\\InspectorDrawer.tsx', action: 'write' },
+    leadSummary: 'Koordinasi update inspector UI',
+    sub1Status: 'editing',
+    sub1File: { fileName: 'transcriptParser.ts', path: 'D:\\Projects\\3D Workspace\\server\\src\\transcriptParser.ts', action: 'edit' },
+    sub1Summary: 'Mengedit transcriptParser.ts',
+    sub2Status: 'reading',
+    sub2File: { fileName: 'TopBar.tsx', path: 'D:\\Projects\\3D Workspace\\client\\src\\ui\\TopBar.tsx', action: 'read' },
+    sub2Summary: 'Membaca TopBar.tsx',
+    pulse: { from: 'demo-lead-1', to: 'demo-sub-2' },
+  },
+  {
+    leadStatus: 'thinking',
+    leadFile: { fileName: 'officeLayout.ts', path: 'D:\\Projects\\3D Workspace\\client\\src\\scene\\officeLayout.ts', action: 'read' },
+    leadSummary: 'Menyusun layout klaster meja',
+    sub1Status: 'running',
+    sub1Summary: 'npm run build --workspace=server',
+    sub2Status: 'editing',
+    sub2File: { fileName: 'AgentDesk.tsx', path: 'D:\\Projects\\3D Workspace\\client\\src\\scene\\AgentDesk.tsx', action: 'edit' },
+    sub2Summary: 'Mengedit AgentDesk.tsx',
+  },
+  {
+    leadStatus: 'editing',
+    leadFile: { fileName: 'App.tsx', path: 'D:\\Projects\\3D Workspace\\client\\src\\App.tsx', action: 'edit' },
+    leadSummary: 'Mengedit App.tsx',
+    sub1Status: 'idle',
+    sub1File: { fileName: 'stateStore.ts', path: 'D:\\Projects\\3D Workspace\\server\\src\\stateStore.ts', action: 'edit' },
+    sub1Summary: 'Selesai · Istirahat kopi',
+    sub2Status: 'reading',
+    sub2File: { fileName: 'AgentAvatar.tsx', path: 'D:\\Projects\\3D Workspace\\client\\src\\scene\\AgentAvatar.tsx', action: 'read' },
+    sub2Summary: 'Membaca AgentAvatar.tsx',
+    pulse: { from: 'demo-sub-1', to: 'demo-lead-1' },
+  },
+];
+
+export class DemoSimulator {
+  private tickIndex = 0;
+  private timer: NodeJS.Timeout | null = null;
+  private snapshot: OfficeSnapshot;
+
+  constructor() {
+    this.snapshot = this.buildSnapshot(Date.now());
+  }
+
+  start(onTick: (snapshot: OfficeSnapshot) => void, intervalMs = 2800): void {
+    this.stop();
+    this.snapshot = this.buildSnapshot(Date.now());
+    onTick(this.snapshot);
+    this.timer = setInterval(() => {
+      const next = this.step();
+      onTick(next);
+    }, intervalMs);
+    this.timer.unref();
+  }
+
+  stop(): void {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+  }
+
+  step(now = Date.now()): OfficeSnapshot {
+    this.tickIndex = (this.tickIndex + 1) % PHASES.length;
+    this.snapshot = this.buildSnapshot(now);
+    return this.snapshot;
+  }
+
+  getSnapshot(): OfficeSnapshot {
+    return this.snapshot;
+  }
+
+  private buildSnapshot(now: number): OfficeSnapshot {
+    const phase = PHASES[this.tickIndex];
+    const ws1 = 'D:\\Projects\\3D Workspace';
+    const ws2 = 'D:\\Projects\\Mobile Commerce';
+
+    const lead1: AgentNode = {
+      id: 'demo-lead-1',
+      parentId: null,
+      rootId: 'demo-lead-1',
+      isSubagent: false,
+      displayName: 'Bangun Kantor 3D Agent',
+      role: 'Main Agent',
+      modelName: 'gemini-4-neon',
+      workspacePath: ws1,
+      projectName: '3D Workspace',
+      status: phase.leadStatus,
+      focusText: phase.leadSummary,
+      currentTool: phase.leadStatus === 'editing' ? 'edit_file' : 'update_focus',
+      currentFile: phase.leadFile,
+      files: [
+        {
+          path: `${ws1}\\client\\src\\scene\\OfficeCanvas.tsx`,
+          relativePath: 'client/src/scene/OfficeCanvas.tsx',
+          fileName: 'OfficeCanvas.tsx',
+          action: 'edit',
+          lastTouchedAt: now - 2000,
+          count: 4,
+        },
+        {
+          path: `${ws1}\\client\\src\\ui\\InspectorDrawer.tsx`,
+          relativePath: 'client/src/ui/InspectorDrawer.tsx',
+          fileName: 'InspectorDrawer.tsx',
+          action: 'write',
+          lastTouchedAt: now - 15000,
+          count: 2,
+        },
+        {
+          path: `${ws1}\\client\\src\\App.tsx`,
+          relativePath: 'client/src/App.tsx',
+          fileName: 'App.tsx',
+          action: 'edit',
+          lastTouchedAt: now - 45000,
+          count: 3,
+        },
+      ],
+      recentActivity: [
+        {
+          id: `demo-a1-${this.tickIndex}`,
+          timestamp: now,
+          toolName: phase.leadStatus === 'editing' ? 'edit_file' : 'update_focus',
+          status: phase.leadStatus,
+          summary: phase.leadSummary,
+          targetPath: phase.leadFile?.path,
+          fileAction: phase.leadFile?.action,
+        },
+        {
+          id: 'demo-a1-prev',
+          timestamp: now - 18000,
+          toolName: 'invoke_subagent',
+          status: 'delegating',
+          summary: 'Mendelegasikan ke Backend Telemetry',
+        },
+      ],
+      lastUpdatedAt: now,
+      lastHookAt: now,
+      createdAt: now - 600_000,
+    };
+
+    const sub1: AgentNode = {
+      id: 'demo-sub-1',
+      parentId: 'demo-lead-1',
+      rootId: 'demo-lead-1',
+      isSubagent: true,
+      displayName: 'Backend Telemetry',
+      role: 'Backend Telemetry',
+      typeName: 'research',
+      modelName: 'gemini-4-flash',
+      workspacePath: ws1,
+      projectName: '3D Workspace',
+      status: phase.sub1Status,
+      focusText: phase.sub1Summary,
+      currentTool: phase.sub1Status === 'running' ? 'run_command' : 'read_file',
+      currentFile: phase.sub1File,
+      files: [
+        {
+          path: `${ws1}\\server\\src\\stateStore.ts`,
+          relativePath: 'server/src/stateStore.ts',
+          fileName: 'stateStore.ts',
+          action: 'edit',
+          lastTouchedAt: now - 4000,
+          count: 3,
+        },
+        {
+          path: `${ws1}\\server\\src\\transcriptParser.ts`,
+          relativePath: 'server/src/transcriptParser.ts',
+          fileName: 'transcriptParser.ts',
+          action: 'read',
+          lastTouchedAt: now - 28000,
+          count: 2,
+        },
+      ],
+      recentActivity: [
+        {
+          id: `demo-s1-${this.tickIndex}`,
+          timestamp: now,
+          toolName: phase.sub1Status === 'running' ? 'run_command' : 'read_file',
+          status: phase.sub1Status,
+          summary: phase.sub1Summary,
+          targetPath: phase.sub1File?.path,
+          fileAction: phase.sub1File?.action,
+        },
+      ],
+      lastUpdatedAt: now,
+      lastHookAt: now,
+      createdAt: now - 540_000,
+    };
+
+    const sub2: AgentNode = {
+      id: 'demo-sub-2',
+      parentId: 'demo-lead-1',
+      rootId: 'demo-lead-1',
+      isSubagent: true,
+      displayName: '3D Scene Artisan',
+      role: '3D Scene Artisan',
+      typeName: 'self',
+      modelName: 'gemini-4-neon',
+      workspacePath: ws1,
+      projectName: '3D Workspace',
+      status: phase.sub2Status,
+      focusText: phase.sub2Summary,
+      currentTool: phase.sub2Status === 'running' ? 'run_command' : 'edit_file',
+      currentFile: phase.sub2File,
+      files: [
+        {
+          path: `${ws1}\\client\\src\\scene\\AgentDesk.tsx`,
+          relativePath: 'client/src/scene/AgentDesk.tsx',
+          fileName: 'AgentDesk.tsx',
+          action: 'edit',
+          lastTouchedAt: now - 3000,
+          count: 5,
+        },
+        {
+          path: `${ws1}\\client\\src\\ui\\TopBar.tsx`,
+          relativePath: 'client/src/ui/TopBar.tsx',
+          fileName: 'TopBar.tsx',
+          action: 'read',
+          lastTouchedAt: now - 22000,
+          count: 1,
+        },
+      ],
+      recentActivity: [
+        {
+          id: `demo-s2-${this.tickIndex}`,
+          timestamp: now,
+          toolName: phase.sub2Status === 'running' ? 'run_command' : 'edit_file',
+          status: phase.sub2Status,
+          summary: phase.sub2Summary,
+          targetPath: phase.sub2File?.path,
+          fileAction: phase.sub2File?.action,
+        },
+      ],
+      lastUpdatedAt: now,
+      lastHookAt: now,
+      createdAt: now - 480_000,
+    };
+
+    const lead2: AgentNode = {
+      id: 'demo-lead-2',
+      parentId: null,
+      rootId: 'demo-lead-2',
+      isSubagent: false,
+      displayName: 'Fix Checkout Payment',
+      role: 'Main Agent',
+      modelName: 'gemini-4-flash',
+      workspacePath: ws2,
+      projectName: 'Mobile Commerce',
+      status: 'idle',
+      focusText: 'Selesai · Menunggu review',
+      currentFile: {
+        fileName: 'checkout.dart',
+        path: `${ws2}\\lib\\checkout.dart`,
+        action: 'edit',
+      },
+      files: [
+        {
+          path: `${ws2}\\lib\\checkout.dart`,
+          relativePath: 'lib/checkout.dart',
+          fileName: 'checkout.dart',
+          action: 'edit',
+          lastTouchedAt: now - 180_000,
+          count: 2,
+        },
+        {
+          path: `${ws2}\\test\\checkout_test.dart`,
+          relativePath: 'test/checkout_test.dart',
+          fileName: 'checkout_test.dart',
+          action: 'write',
+          lastTouchedAt: now - 150_000,
+          count: 1,
+        },
+      ],
+      recentActivity: [
+        {
+          id: 'demo-l2-1',
+          timestamp: now - 150_000,
+          toolName: 'run_command',
+          status: 'running',
+          summary: 'flutter test test/checkout_test.dart',
+        },
+      ],
+      lastUpdatedAt: now - 140_000,
+      lastHookAt: now - 140_000,
+      createdAt: now - 900_000,
+    };
+
+    const clusters: TeamCluster[] = [
+      {
+        rootId: 'demo-lead-1',
+        projectName: '3D Workspace',
+        workspacePath: ws1,
+        title: lead1.displayName,
+        leadAgentId: 'demo-lead-1',
+        agentIds: ['demo-lead-1', 'demo-sub-1', 'demo-sub-2'],
+        lastUpdatedAt: now,
+      },
+      {
+        rootId: 'demo-lead-2',
+        projectName: 'Mobile Commerce',
+        workspacePath: ws2,
+        title: lead2.displayName,
+        leadAgentId: 'demo-lead-2',
+        agentIds: ['demo-lead-2'],
+        lastUpdatedAt: now - 140_000,
+      },
+    ];
+
+    const activePulses: ActivePulse[] = phase.pulse
+      ? [
+          {
+            id: `demo-pulse-${this.tickIndex}`,
+            fromAgentId: phase.pulse.from,
+            toAgentId: phase.pulse.to,
+            timestamp: now,
+          },
+        ]
+      : [];
+
+    return {
+      generatedAt: now,
+      hookActive: true,
+      lastHookAt: now,
+      demoMode: true,
+      clusters,
+      agents: {
+        [lead1.id]: lead1,
+        [sub1.id]: sub1,
+        [sub2.id]: sub2,
+        [lead2.id]: lead2,
+      },
+      activePulses,
+    };
+  }
+}
