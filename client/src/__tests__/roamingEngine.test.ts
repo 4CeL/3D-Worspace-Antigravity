@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentNode, AgentStatus, FloorConfig, FloorTheme, TeamCluster } from '@office/shared';
-import { computeOfficeLayout } from '../scene/officeLayout';
+import {
+  FIXED_FLOOR_DEPTH,
+  FIXED_FLOOR_WIDTH,
+  computeOfficeLayout,
+} from '../scene/officeLayout';
 import { RoamingController, computeFloorWaypoints } from '../scene/roamingEngine';
 
 function makeAgent(
@@ -35,27 +39,26 @@ function advance(controller: RoamingController, seconds: number, stepSize = 0.1)
 describe('computeFloorWaypoints', () => {
   const themes: FloorTheme[] = ['engineering', 'lobby', 'creative', 'pantry'];
 
-  it('keeps all waypoints strictly inside floor bounds with wall and ElevatorCore clearance for every theme', () => {
-    const floorWidth = 17;
-    const floorDepth = 17;
-    const halfW = floorWidth / 2;
-    const halfD = floorDepth / 2;
-    // ElevatorCore sits at [-halfW + 1.05, -halfD + 0.95] spanning [-halfW + 0.22..-halfW + 1.88, -halfD + 0.17..-halfD + 1.73]
+  it('places safe waypoints across the fixed 28x24 floorplan with wall and ElevatorCore clearance for every theme', () => {
+    const halfW = FIXED_FLOOR_WIDTH / 2;
+    const halfD = FIXED_FLOOR_DEPTH / 2;
+    // ElevatorCore sits at [-halfW + 1.05, -halfD + 0.95]
     const elevX = -halfW + 1.05;
     const elevZ = -halfD + 0.95;
 
     for (const theme of themes) {
-      const waypoints = computeFloorWaypoints(floorWidth, floorDepth, theme);
+      const waypoints = computeFloorWaypoints(FIXED_FLOOR_WIDTH, FIXED_FLOOR_DEPTH, theme);
       expect(waypoints.length).toBeGreaterThanOrEqual(5);
 
+      // Includes central corridor waypoint (z = 0)
+      expect(waypoints.some((w) => Math.abs(w.z) < 0.01)).toBe(true);
+
       for (const wp of waypoints) {
-        // Wall clearance >= 1.5 units
         expect(wp.x).toBeGreaterThanOrEqual(-halfW + 1.5);
         expect(wp.x).toBeLessThanOrEqual(halfW - 1.5);
         expect(wp.z).toBeGreaterThanOrEqual(-halfD + 1.5);
         expect(wp.z).toBeLessThanOrEqual(halfD - 1.5);
 
-        // Safe clearance from ElevatorCore footprint
         const distToElevator = Math.hypot(wp.x - elevX, wp.z - elevZ);
         expect(distToElevator).toBeGreaterThanOrEqual(2.2);
       }
@@ -64,7 +67,7 @@ describe('computeFloorWaypoints', () => {
 });
 
 describe('RoamingController', () => {
-  it('keeps Main Agents seated when idle while idle subagents wait for staggered delay then walk out and visit', () => {
+  it('routes idle subagents through their suite doorway into the central corridor while keeping Main Agents seated', () => {
     const floors: FloorConfig[] = [{ id: 'floor-1', index: 1, name: 'Lantai 1', theme: 'lobby' }];
     const agents: Record<string, AgentNode> = {
       'lead-1': makeAgent('lead-1', null, 'lead-1', 'idle'),
@@ -83,6 +86,9 @@ describe('RoamingController', () => {
     ];
 
     const layout = computeOfficeLayout(clusters, agents, floors);
+    const suiteDoor = layout.desks['sub-alpha'].doorPosition!;
+    expect(suiteDoor).toBeDefined();
+
     const controller = new RoamingController();
     controller.syncLayout(layout, agents);
 
@@ -92,24 +98,30 @@ describe('RoamingController', () => {
     expect(controller.getState('sub-alpha')?.mode).toBe('seated');
     expect(controller.getRoamingAgentIds().size).toBe(0);
 
-    // By 6.0s (> 5.5s maximum staggered delay), subagent stands up and walks out; lead stays seated
-    advance(controller, 3.5);
-    expect(controller.getState('lead-1')?.mode).toBe('seated');
-    const midState = controller.getState('sub-alpha');
-    expect(midState?.mode === 'walking_out' || midState?.mode === 'visiting').toBe(true);
-    expect(controller.getRoamingAgentIds().has('sub-alpha')).toBe(true);
-    expect(controller.getRoamingAgentIds().has('lead-1')).toBe(false);
+    // Step forward and record whether subagent passes cleanly through suite doorway & central corridor
+    let passedThroughDoorway = false;
+    let enteredCentralCorridor = false;
+    let sawVisiting = false;
 
-    // After walking time, subagent reaches a waypoint and enters visiting
-    let sawVisiting = midState?.mode === 'visiting';
-    for (let i = 0; i < 120 && !sawVisiting; i++) {
+    for (let i = 0; i < 240; i++) {
       controller.step(0.1);
-      if (controller.getState('sub-alpha')?.mode === 'visiting') {
+      const st = controller.getState('sub-alpha')!;
+      if (Math.hypot(st.x - suiteDoor[0], st.z - suiteDoor[1]) < 0.45) {
+        passedThroughDoorway = true;
+      }
+      if (Math.abs(st.z) < 0.45 && st.mode !== 'seated') {
+        enteredCentralCorridor = true;
+      }
+      if (st.mode === 'visiting') {
         sawVisiting = true;
+        break;
       }
     }
-    expect(sawVisiting).toBe(true);
+
     expect(controller.getState('lead-1')?.mode).toBe('seated');
+    expect(passedThroughDoorway).toBe(true);
+    expect(enteredCentralCorridor).toBe(true);
+    expect(sawVisiting).toBe(true);
   });
 
   it('pairs two idle subagents on the same floor into chatting facing each other with non-clipping spacing and bubbles', () => {
@@ -136,12 +148,11 @@ describe('RoamingController', () => {
     controller.syncLayout(layout, agents);
 
     let paired = false;
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0; i < 400; i++) {
       controller.step(0.1);
       const s1 = controller.getState('sub-1');
       const s2 = controller.getState('sub-2');
       if (s1?.mode === 'chatting' && s2?.mode === 'chatting') {
-        // Give them a brief moment to settle onto their exact chat spots
         advance(controller, 1.0);
         paired = true;
         break;
@@ -156,11 +167,9 @@ describe('RoamingController', () => {
     expect(s1.partnerId).toBe('sub-2');
     expect(s2.partnerId).toBe('sub-1');
 
-    // Non-clipping distance >= 0.75
     const spacing = Math.hypot(s2.x - s1.x, s2.z - s1.z);
     expect(spacing).toBeGreaterThanOrEqual(0.75);
 
-    // Facing each other: dot product of unit facing vector with vector toward partner > 0.9
     const dx12 = (s2.x - s1.x) / spacing;
     const dz12 = (s2.z - s1.z) / spacing;
     const face1Dot = Math.sin(s1.rotationY) * dx12 + Math.cos(s1.rotationY) * dz12;
@@ -168,12 +177,11 @@ describe('RoamingController', () => {
     expect(face1Dot).toBeGreaterThan(0.9);
     expect(face2Dot).toBeGreaterThan(0.9);
 
-    // Friendly interaction bubbles emitted
     expect(['💬', '☕', '💡', '👋']).toContain(s1.bubble);
     expect(['💬', '☕', '💡', '👋']).toContain(s2.bubble);
   });
 
-  it('immediately unpairs partner, returns briskly to desk, and snaps back to seated when work resumes', () => {
+  it('immediately unpairs partner, returns via suite doorway to desk, and snaps back to seated when work resumes', () => {
     const floors: FloorConfig[] = [{ id: 'floor-1', index: 1, name: 'Lantai 1', theme: 'creative' }];
     const agents: Record<string, AgentNode> = {
       'lead-1': makeAgent('lead-1', null, 'lead-1', 'editing'),
@@ -193,11 +201,11 @@ describe('RoamingController', () => {
     ];
 
     const layout = computeOfficeLayout(clusters, agents, floors);
+    const suiteDoor = layout.desks['sub-1'].doorPosition!;
     const controller = new RoamingController();
     controller.syncLayout(layout, agents);
 
-    // Wait until they are chatting
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0; i < 400; i++) {
       controller.step(0.1);
       if (
         controller.getState('sub-1')?.mode === 'chatting' &&
@@ -215,15 +223,24 @@ describe('RoamingController', () => {
     };
     controller.syncLayout(layout, updatedAgents);
 
-    // Immediately switches to returning and unpairs sub-2 cleanly to visiting
     expect(controller.getState('sub-1')?.mode).toBe('returning');
     expect(controller.getState('sub-1')?.partnerId).toBeNull();
     expect(controller.getState('sub-1')?.bubble).toBeNull();
     expect(controller.getState('sub-2')?.partnerId).toBeNull();
     expect(controller.getState('sub-2')?.mode).toBe('visiting');
 
-    // Walks briskly back to desk and snaps back to seated
-    advance(controller, 8.0);
+    // Track return through suite doorway back to desk
+    let returnedViaDoorway = false;
+    for (let i = 0; i < 160; i++) {
+      controller.step(0.1);
+      const st = controller.getState('sub-1')!;
+      if (Math.hypot(st.x - suiteDoor[0], st.z - suiteDoor[1]) < 0.6) {
+        returnedViaDoorway = true;
+      }
+      if (st.mode === 'seated') break;
+    }
+
+    expect(returnedViaDoorway).toBe(true);
     const seatedState = controller.getState('sub-1')!;
     expect(seatedState.mode).toBe('seated');
     expect(controller.getRoamingAgentIds().has('sub-1')).toBe(false);
@@ -236,7 +253,7 @@ describe('RoamingController', () => {
     );
   });
 
-  it('unpairs chat partner cleanly when a chatting subagent moves floors or is hidden/removed, and ignores NaN dt', () => {
+  it('unpairs chat partner cleanly on floor change or agent removal, ignores NaN dt, and keeps glass-room chatters clear of doorways', () => {
     const floors: FloorConfig[] = [
       { id: 'floor-1', index: 1, name: 'Lantai 1', theme: 'engineering' },
       { id: 'floor-2', index: 2, name: 'Lantai 2', theme: 'lobby' },
@@ -272,32 +289,37 @@ describe('RoamingController', () => {
     const controller = new RoamingController();
     controller.syncLayout(layout1, agents);
 
-    // Wait until sub-1 and sub-2 pair up to chat on floor-1
-    for (let i = 0; i < 300; i++) {
+    // Wait until sub-1 and sub-2 pair up to chat across the 28x24 floor
+    for (let i = 0; i < 450; i++) {
       controller.step(0.1);
       if (
         controller.getState('sub-1')?.mode === 'chatting' &&
         controller.getState('sub-2')?.mode === 'chatting'
       ) {
+        advance(controller, 0.8);
         break;
       }
     }
-    expect(controller.getState('sub-1')?.partnerId).toBe('sub-2');
-    expect(controller.getState('sub-2')?.partnerId).toBe('sub-1');
+    const s1 = controller.getState('sub-1')!;
+    const s2 = controller.getState('sub-2')!;
+    expect(s1.partnerId).toBe('sub-2');
+    expect(s2.partnerId).toBe('sub-1');
+    // Neither chatter straddles a glass doorway wall (|z| in [2.35, 3.25])
+    expect(Math.abs(s1.z) < 2.35 || Math.abs(s1.z) > 3.25).toBe(true);
+    expect(Math.abs(s2.z) < 2.35 || Math.abs(s2.z) > 3.25).toBe(true);
 
     // NaN / negative dt must not corrupt positions
     expect(controller.step(Number.NaN)).toBe(false);
     expect(controller.step(-0.5)).toBe(false);
     expect(Number.isFinite(controller.getState('sub-1')!.x)).toBe(true);
 
-    // Move Team B (sub-2) to floor-2 -> sub-2 resets to seated on floor-2, sub-1 unpairs cleanly
+    // Move Team B (sub-2) to floor-2 -> sub-2 resets seated on floor-2, sub-1 unpairs cleanly
     const clustersMoved: TeamCluster[] = [
       clustersOnFloor1[0],
       { ...clustersOnFloor1[1], floorId: 'floor-2' },
     ];
     const layoutMoved = computeOfficeLayout(clustersMoved, agents, floors);
-    const sigChangedAfterMove = controller.syncLayout(layoutMoved, agents);
-    expect(sigChangedAfterMove).toBe(true);
+    expect(controller.syncLayout(layoutMoved, agents)).toBe(true);
     expect(controller.getState('sub-2')).toMatchObject({
       floorId: 'floor-2',
       mode: 'seated',
@@ -314,7 +336,7 @@ describe('RoamingController', () => {
 
     // Move Team B back to floor-1, re-pair, then hide/remove sub-1 completely
     controller.syncLayout(layout1, agents);
-    for (let i = 0; i < 300; i++) {
+    for (let i = 0; i < 450; i++) {
       controller.step(0.1);
       if (
         controller.getState('sub-1')?.mode === 'chatting' &&

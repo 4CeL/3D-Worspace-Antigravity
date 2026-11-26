@@ -1370,39 +1370,39 @@ function OpenShelvingUnit({ position }: { position: [number, number, number] }) 
 function PantryKitchenZone({ position }: { position: [number, number, number] }) {
   return (
     <group position={position}>
-      {/* Cozy woven pantry floor mat */}
-      <mesh position={[0, 0.015, 0.78]} receiveShadow>
-        <boxGeometry args={[4.2, 0.03, 2.7]} />
+      {/* Cozy woven pantry floor mat sized cleanly inside Back-Right Glass Room */}
+      <mesh position={[0, 0.015, 1.25]} receiveShadow>
+        <boxGeometry args={[3.7, 0.03, 3.6]} />
         <meshStandardMaterial color="#efe4d3" roughness={0.95} />
       </mesh>
 
       {/* Back counter cabinetry */}
-      <group position={[-0.1, 0, 0]}>
+      <group position={[-0.52, 0, 0]}>
         <mesh position={[0, 0.48, 0]} castShadow receiveShadow>
-          <boxGeometry args={[2.65, 0.96, 0.85]} />
+          <boxGeometry args={[2.35, 0.96, 0.84]} />
           <meshStandardMaterial color="#966945" roughness={0.72} />
         </mesh>
         <mesh position={[0, 0.99, 0]} castShadow receiveShadow>
-          <boxGeometry args={[2.76, 0.08, 0.94]} />
+          <boxGeometry args={[2.46, 0.08, 0.92]} />
           <meshStandardMaterial color="#fffaf2" roughness={0.45} />
         </mesh>
         {/* Espresso machine */}
-        <EspressoMachine position={[-0.86, 1.03, -0.05]} />
+        <EspressoMachine position={[-0.74, 1.03, -0.05]} />
         {/* Stacked ceramic mugs */}
-        <mesh position={[-0.12, 1.1, 0.1]} castShadow>
+        <mesh position={[-0.08, 1.1, 0.1]} castShadow>
           <cylinderGeometry args={[0.072, 0.064, 0.14, 12]} />
           <meshStandardMaterial color="#e07a5f" roughness={0.4} />
         </mesh>
-        <mesh position={[-0.12, 1.24, 0.1]} castShadow>
+        <mesh position={[-0.08, 1.24, 0.1]} castShadow>
           <cylinderGeometry args={[0.07, 0.062, 0.13, 12]} />
           <meshStandardMaterial color="#fffbeb" roughness={0.4} />
         </mesh>
-        <mesh position={[0.08, 1.1, -0.06]} castShadow>
+        <mesh position={[0.12, 1.1, -0.06]} castShadow>
           <cylinderGeometry args={[0.072, 0.064, 0.14, 12]} />
           <meshStandardMaterial color="#f59e0b" roughness={0.4} />
         </mesh>
         {/* Microwave */}
-        <group position={[0.76, 1.24, -0.04]}>
+        <group position={[0.68, 1.24, -0.04]}>
           <mesh castShadow>
             <boxGeometry args={[0.72, 0.42, 0.48]} />
             <meshStandardMaterial color="#e7e5e4" roughness={0.45} />
@@ -1425,44 +1425,46 @@ function PantryKitchenZone({ position }: { position: [number, number, number] })
       </group>
 
       {/* Cream mini-fridge on right end */}
-      <CreamMiniFridge position={[1.74, 0, 0.02]} />
+      <CreamMiniFridge position={[1.38, 0, 0.02]} />
 
-      {/* Water dispenser on left end */}
-      <WaterCooler position={[-1.82, 0, -0.02]} />
+      {/* Water dispenser along right interior wall facing west */}
+      <group position={[1.48, 0, 1.85]} rotation={[0, -Math.PI / 2, 0]}>
+        <WaterCooler position={[0, 0, 0]} />
+      </group>
 
       {/* Front cafe kitchen island bar */}
-      <group position={[0.05, 0, 1.56]}>
+      <group position={[-0.25, 0, 2.05]}>
         <mesh position={[0, 0.46, 0]} castShadow receiveShadow>
-          <boxGeometry args={[2.06, 0.92, 0.72]} />
+          <boxGeometry args={[1.95, 0.92, 0.72]} />
           <meshStandardMaterial color="#a4754d" roughness={0.72} />
         </mesh>
         <mesh position={[0, 0.955, 0]} castShadow receiveShadow>
-          <boxGeometry args={[2.18, 0.07, 0.84]} />
+          <boxGeometry args={[2.08, 0.07, 0.84]} />
           <meshStandardMaterial color="#fffaf2" roughness={0.45} />
         </mesh>
         {/* Wooden fruit bowl with colorful fruit */}
-        <mesh position={[-0.48, 1.06, 0]} castShadow>
+        <mesh position={[-0.45, 1.06, 0]} castShadow>
           <cylinderGeometry args={[0.22, 0.13, 0.14, 14]} />
           <meshStandardMaterial color="#b47b49" roughness={0.7} />
         </mesh>
-        <mesh position={[-0.54, 1.14, 0.04]} castShadow>
+        <mesh position={[-0.51, 1.14, 0.04]} castShadow>
           <sphereGeometry args={[0.065, 10, 10]} />
           <meshStandardMaterial color="#ef4444" roughness={0.45} />
         </mesh>
-        <mesh position={[-0.41, 1.14, -0.03]} castShadow>
+        <mesh position={[-0.38, 1.14, -0.03]} castShadow>
           <sphereGeometry args={[0.065, 10, 10]} />
           <meshStandardMaterial color="#f97316" roughness={0.5} />
         </mesh>
-        <mesh position={[-0.48, 1.16, -0.06]} castShadow>
+        <mesh position={[-0.45, 1.16, -0.06]} castShadow>
           <sphereGeometry args={[0.06, 10, 10]} />
           <meshStandardMaterial color="#84cc16" roughness={0.45} />
         </mesh>
         {/* Cookie / pastry jar */}
-        <mesh position={[0.44, 1.13, -0.04]} castShadow>
+        <mesh position={[0.42, 1.13, -0.04]} castShadow>
           <cylinderGeometry args={[0.11, 0.11, 0.26, 12]} />
           <meshStandardMaterial color="#fef3c7" transparent opacity={0.82} roughness={0.2} />
         </mesh>
-        <mesh position={[0.44, 1.27, -0.04]}>
+        <mesh position={[0.42, 1.27, -0.04]}>
           <cylinderGeometry args={[0.115, 0.115, 0.035, 12]} />
           <meshStandardMaterial color="#a4754d" roughness={0.65} />
         </mesh>
@@ -1611,7 +1613,11 @@ function FloatingMugShelf({ position }: { position: [number, number, number] }) 
 }
 
 /* ============================================================================
- * Main FloorDecor Component
+ * Main FloorDecor Component (Aligned to Fixed 28 x 24 Architectural Rooms)
+ * - Front-Left Glass Room:  x in [-13.5, -8.8], z in [2.8, 11.2]
+ * - Back-Right Glass Room:  x in [9.0, 13.5],   z in [-11.3, -2.8]
+ * - Lift Lobby:             x in [-13.6, -9.2], z in [-11.3, -2.8]
+ * - Front-Right Terrace:    x in [9.0, 13.5],   z in [2.8, 11.2]
  * ========================================================================== */
 
 export const FloorDecor: React.FC<FloorDecorProps> = ({
@@ -1623,104 +1629,102 @@ export const FloorDecor: React.FC<FloorDecorProps> = ({
   const halfW = floorWidth / 2;
   const halfD = floorDepth / 2;
 
-  const { clockX, dashboardX } = useMemo(
-    () => computeBackWallBays(floorWidth),
-    [floorWidth],
-  );
+  const { clockX } = useMemo(() => computeBackWallBays(floorWidth), [floorWidth]);
 
-  // Place shared lamp & trash bin cleanly in each theme's perimeter layout
+  // Lamp tucked cleanly inside the Front-Left Glass Room without blocking the North doorway (z = 2.8)
   const lampPos: [number, number, number] =
-    theme === 'lobby'
-      ? [-halfW + 0.85, 0, halfD - 3.65]
-      : theme === 'creative'
-        ? [-halfW + 0.85, 0, halfD - 4.05]
-        : theme === 'pantry'
-          ? [-halfW + 0.85, 0, halfD - 3.9]
-          : [-halfW + 1.0, 0, halfD - 2.35];
-
-  const trashPos: [number, number, number] =
-    theme === 'lobby'
-      ? [halfW - 4.28, 0, -halfD + 0.72]
+    theme === 'creative'
+      ? [-12.95, 0, 5.55]
       : theme === 'pantry'
-        ? [halfW - 5.15, 0, -halfD + 0.76]
-        : [-halfW + 0.68, 0, 2.35];
+        ? [-12.95, 0, 5.85]
+        : [-12.95, 0, 6.05];
+
+  // Trash bin tucked inside the Back-Right Glass Room near the west interior wall (clear of coffee/pantry mats)
+  const trashPos: [number, number, number] =
+    theme === 'engineering' ? [10.4, 0, -10.65] : [9.42, 0, -8.0];
 
   return (
     <group>
       {/* Shared cozy details across every floor */}
-      <AnalogWallClock position={[clockX, 2.45, -halfD + 0.04]} floorIndex={floorIndex} />
+      <AnalogWallClock position={[clockX, 2.48, -halfD + 0.05]} floorIndex={floorIndex} />
       <StandingFloorLamp position={lampPos} />
       <OfficeTrashBin position={trashPos} />
 
-      {/* Lush corner plants framing the perimeter */}
+      {/* Front-Right Reading & Plant Corner (open airy terrace beside L{n} badge) */}
       <PottedPlant
-        position={[halfW - 1.05, 0, halfD - 1.05]}
-        scale={0.95}
+        position={[12.55, 0, 10.35]}
+        scale={1.0}
         variant={theme === 'lobby' || theme === 'pantry' ? 'tall' : 'terracotta'}
       />
-      <PottedPlant
-        position={[-halfW + 2.35, 0, -halfD + 0.72]}
-        scale={0.82}
-        variant="ceramic"
-      />
+      <PottedPlant position={[12.6, 0, 8.9]} scale={0.78} variant="ceramic" />
+      <WoodBistroStool position={[11.65, 0, 9.75]} />
+
+      {/* Lift Lobby corner plant (clear of ElevatorCore & Suite 1 glass wall) */}
+      <PottedPlant position={[-10.1, 0, -10.8]} scale={0.85} variant="ceramic" />
 
       {/* Theme-specific rich 3D office furniture */}
       {theme === 'engineering' && (
         <>
-          <ServerRack42U position={[halfW - 1.05, 0, -halfD + 0.78]} />
-          <WaterCooler position={[halfW - 2.35, 0, -halfD + 0.74]} />
-          <StatusDashboardTV position={[dashboardX, 2.15, -halfD + 0.05]} />
-          <KanbanWhiteboard position={[-halfW + 0.05, 2.04, -2.2]} />
-          <WoodenFilingCabinet position={[-halfW + 0.44, 0, 0.85]} />
-          <PottedPlant
-            position={[-halfW + 1.15, 0, halfD - 1.1]}
-            scale={1.0}
-            variant="tall"
-          />
+          {/* Back-Right Glass Server & Utility Room */}
+          <ServerRack42U position={[12.6, 0, -10.55]} />
+          <WaterCooler position={[11.4, 0, -10.6]} />
+          <WoodenFilingCabinet position={[9.62, 0, -7.8]} />
+          <PottedPlant position={[12.75, 0, -5.8]} scale={0.85} variant="ceramic" />
+
+          {/* Back wall inside Suite 2 (between sunlit windows) */}
+          <StatusDashboardTV position={[6.95, 2.15, -halfD + 0.05]} />
+
+          {/* Left wall Kanban boards (Lift Lobby + Front-Left Glass Breakout Room) */}
+          <KanbanWhiteboard position={[-halfW + 0.05, 2.04, -6.2]} />
+          <KanbanWhiteboard position={[-halfW + 0.05, 2.04, 7.6]} />
+          <PottedPlant position={[-12.55, 0, 10.1]} scale={0.98} variant="tall" />
         </>
       )}
 
       {theme === 'lobby' && (
         <>
-          <CozySofaLounge position={[-halfW + 2.25, 0, halfD - 2.2]} />
-          <CoffeeBarCounter position={[halfW - 2.65, 0, -halfD + 0.9]} />
-          <CreamMiniFridge position={[halfW - 0.92, 0, -halfD + 0.82]} />
-          <TallBookshelf position={[-halfW + 0.42, 0, -2.25]} />
-          <MinimalistArtPrints position={[-halfW + 0.05, 2.08, 0.85]} />
-          <PottedPlant
-            position={[-halfW + 0.95, 0, 2.45]}
-            scale={0.85}
-            variant="terracotta"
-          />
+          {/* Front-Left Glass Lounge Room */}
+          <CozySofaLounge position={[-11.5, 0, 8.2]} />
+          <MinimalistArtPrints position={[-halfW + 0.05, 2.08, 8.2]} />
+
+          {/* Back-Right Glass Coffee Bar Room */}
+          <CoffeeBarCounter position={[10.95, 0, -10.45]} />
+          <CreamMiniFridge position={[12.78, 0, -10.5]} />
+          <PottedPlant position={[12.75, 0, -6.0]} scale={0.85} variant="ceramic" />
+
+          {/* Lift Lobby Tall Bookshelf */}
+          <TallBookshelf position={[-halfW + 0.42, 0, -6.0]} />
         </>
       )}
 
       {theme === 'creative' && (
         <>
-          <RoundCollabZone position={[-halfW + 2.65, 0, halfD - 2.45]} />
-          <MoodboardPinboard position={[-halfW + 0.05, 2.04, -2.25]} />
-          <GeometricPosters position={[-halfW + 0.05, 2.04, 0.85]} />
-          <OpenShelvingUnit position={[halfW - 2.75, 0, -halfD + 0.68]} />
-          <WaterCooler position={[halfW - 1.05, 0, -halfD + 0.74]} />
+          {/* Front-Left Glass Studio Collaboration Room */}
+          <RoundCollabZone position={[-11.15, 0, 8.1]} />
+          <MoodboardPinboard position={[-halfW + 0.05, 2.04, 7.6]} />
+
+          {/* Back-Right Glass Studio Resource Room */}
+          <OpenShelvingUnit position={[10.85, 0, -10.55]} />
+          <WaterCooler position={[12.6, 0, -10.58]} />
+          <PottedPlant position={[12.75, 0, -6.0]} scale={0.9} variant="terracotta" />
+
+          {/* Lift Lobby Geometric Art Posters */}
+          <GeometricPosters position={[-halfW + 0.05, 2.04, -6.0]} />
         </>
       )}
 
       {theme === 'pantry' && (
         <>
-          <PantryKitchenZone position={[halfW - 2.65, 0, -halfD + 0.84]} />
-          <BistroCafeNook position={[-halfW + 2.55, 0, halfD - 2.35]} />
-          <FloatingMugShelf position={[-halfW + 0.2, 1.62, -1.9]} />
-          {/* Extra lush greenery for cozy cafe pantry vibe */}
-          <PottedPlant
-            position={[-halfW + 0.92, 0, 0.75]}
-            scale={1.1}
-            variant="tall"
-          />
-          <PottedPlant
-            position={[-halfW + 0.82, 0, 1.85]}
-            scale={0.82}
-            variant="ceramic"
-          />
+          {/* Back-Right Glass Pantry Kitchen Room */}
+          <PantryKitchenZone position={[11.25, 0, -10.45]} />
+
+          {/* Front-Left Glass Bistro Room */}
+          <BistroCafeNook position={[-11.15, 0, 8.15]} />
+          <FloatingMugShelf position={[-halfW + 0.2, 1.62, 7.8]} />
+
+          {/* Extra lush greenery in Lift Lobby */}
+          <PottedPlant position={[-halfW + 0.92, 0, -6.4]} scale={1.1} variant="tall" />
+          <PottedPlant position={[-halfW + 0.85, 0, -5.0]} scale={0.82} variant="ceramic" />
         </>
       )}
     </group>

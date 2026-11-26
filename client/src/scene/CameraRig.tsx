@@ -45,19 +45,19 @@ export const CameraRig: React.FC<CameraRigProps> = ({
     const floors = Math.max(1, visibleFloorCountRef.current);
     const totalH = (floors - 1) * FLOOR_HEIGHT + 3.5;
     const midY = ((floors - 1) * FLOOR_HEIGHT) / 2 + 0.6;
-    const dist = Math.max(13.5, floorSizeRef.current * 0.88, totalH * 1.35);
+    const dist = Math.max(22, floorSizeRef.current * 0.86, totalH * 1.4);
     return {
       target: new THREE.Vector3(0, midY, 0),
-      pos: new THREE.Vector3(dist, midY + dist * 0.78, dist),
+      pos: new THREE.Vector3(dist, midY + dist * 0.82, dist),
     };
   };
 
   const computeFloorPose = (floorIdx: number) => {
     const floorY = (floorIdx - 1) * FLOOR_HEIGHT;
-    const dist = Math.max(13, floorSizeRef.current * 0.82);
+    const dist = Math.max(20.5, floorSizeRef.current * 0.8);
     return {
       target: new THREE.Vector3(0, floorY + 0.8, 0),
-      pos: new THREE.Vector3(dist, floorY + dist * 0.85, dist),
+      pos: new THREE.Vector3(dist, floorY + dist * 0.86, dist),
     };
   };
 

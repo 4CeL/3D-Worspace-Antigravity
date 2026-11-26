@@ -127,7 +127,7 @@ export const OfficeCanvas: React.FC<OfficeCanvasProps> = ({
       <Canvas
         shadows
         dpr={[1, 2]}
-        camera={{ position: [15, 14, 15], fov: 36, near: 0.1, far: 260 }}
+        camera={{ position: [24, 21, 24], fov: 36, near: 0.1, far: 300 }}
       >
         <color attach="background" args={['#f4ede4']} />
 
@@ -158,6 +158,11 @@ export const OfficeCanvas: React.FC<OfficeCanvasProps> = ({
         {visibleFloors.map((floor, idx) => {
           const isTopVisible = idx === visibleFloors.length - 1;
           const isFocused = focusedFloorIndex === floor.index;
+          const occupiedSuiteIds = new Set(
+            floor.clusters
+              .map((c) => c.suiteId)
+              .filter((id): id is string => Boolean(id)),
+          );
           return (
             <React.Fragment key={floor.floorId}>
               <OfficeRoom
@@ -167,6 +172,8 @@ export const OfficeCanvas: React.FC<OfficeCanvasProps> = ({
                 floorIndex={floor.index}
                 floorName={floor.name}
                 floorTheme={floor.theme}
+                suites={floor.suites}
+                occupiedSuiteIds={occupiedSuiteIds}
                 hasFloorAbove={!isTopVisible}
                 isFocused={isFocused}
                 coffeeCorner={floor.coffeeCorner}

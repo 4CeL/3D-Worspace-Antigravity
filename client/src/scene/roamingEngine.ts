@@ -10,6 +10,7 @@ export interface FloorWaypoint {
   label: string;
   x: number;
   z: number;
+  entryDoor?: [number, number];
   preferredBubble?: Exclude<RoamingBubble, null>;
 }
 
@@ -42,6 +43,7 @@ interface InternalAgentRecord {
   deskY: number;
   deskZ: number;
   deskRotationY: number;
+  suiteDoor: Point2D | null;
   seatX: number;
   seatZ: number;
   exitX: number;
@@ -72,6 +74,7 @@ const SEAT_SNAP_DIST = 0.15;
 const WAYPOINT_SNAP_DIST = 0.16;
 const CHAT_SPACING = 0.96;
 const CHAT_PAIR_RADIUS = 2.65;
+const CORRIDOR_Z = 0;
 const CHAT_BUBBLES: readonly Exclude<RoamingBubble, null>[] = ['💬', '☕', '💡', '👋'];
 
 function hashString(input: string): number {
@@ -94,8 +97,13 @@ function lerpAngle(current: number, target: number, alpha: number): number {
 }
 
 /**
- * Returns 6 safe perimeter/corridor walkable waypoints per floor strictly outside
- * center desk footprints, wall edges, ElevatorCore, and furniture bounds.
+ * Returns 6 safe walkable waypoints aligned to the fixed 28 x 24 multi-room glass floorplan:
+ * - Central Corridor (z = 0)
+ * - Lift Lobby ([-11.2, 0])
+ * - Front-Left Glass Lounge / Meeting / Bistro Room ([-11.1, 4.6], North doorway [-11.1, 2.8])
+ * - Back-Right Glass Pantry / Server / Coffee Room ([11.1, -4.5], South doorway [11.2, -2.8])
+ * - East Corridor overlook ([11.2, 0.2])
+ * - Front-Right Reading & Plant corner ([11.2, 6.2])
  */
 export function computeFloorWaypoints(
   floorWidth: number,
@@ -105,38 +113,14 @@ export function computeFloorWaypoints(
   const halfW = floorWidth / 2;
   const halfD = floorDepth / 2;
 
-  const pantryPoint: FloorWaypoint =
+  const pantryLabel =
     theme === 'pantry'
-      ? {
-          id: 'pantry-alcove',
-          label: 'Di Pantry',
-          x: halfW - 2.55,
-          z: -halfD + 3.45,
-          preferredBubble: '☕',
-        }
+      ? 'Di Pantry'
       : theme === 'lobby'
-        ? {
-            id: 'pantry-alcove',
-            label: 'Di Coffee Bar',
-            x: halfW - 2.6,
-            z: -halfD + 2.35,
-            preferredBubble: '☕',
-          }
+        ? 'Di Coffee Bar'
         : theme === 'engineering'
-          ? {
-              id: 'pantry-alcove',
-              label: 'Cek Server',
-              x: halfW - 2.15,
-              z: -halfD + 2.25,
-              preferredBubble: '💡',
-            }
-          : {
-              id: 'pantry-alcove',
-              label: 'Di Rak Studio',
-              x: halfW - 2.25,
-              z: -halfD + 2.2,
-              preferredBubble: '💡',
-            };
+          ? 'Ruang Server'
+          : 'Ruang Studio';
 
   const loungeLabel =
     theme === 'lobby'
@@ -145,48 +129,59 @@ export function computeFloorWaypoints(
         ? 'Ruang Diskusi'
         : theme === 'pantry'
           ? 'Area Bistro'
-          : 'Sudut Santai';
+          : 'Ruang Santai';
+
+  const clampX = (x: number) => clamp(x, -halfW + 1.8, halfW - 1.8);
+  const clampZ = (z: number) => clamp(z, -halfD + 1.8, halfD - 1.8);
 
   return [
-    pantryPoint,
     {
-      id: 'front-left-room',
-      label: loungeLabel,
-      x: -halfW + 3.15,
-      z: halfD - 4.15,
-      preferredBubble: theme === 'creative' ? '💡' : '☕',
+      id: 'central-corridor',
+      label: 'Koridor Utama',
+      x: 0,
+      z: CORRIDOR_Z,
     },
     {
-      id: 'elevator-hall',
-      label: 'Lorong Lift',
-      x: -halfW + 3.05,
-      z: -halfD + 3.45,
+      id: 'lift-lobby',
+      label: 'Lobi Lift',
+      x: clampX(-11.2),
+      z: CORRIDOR_Z,
       preferredBubble: '👋',
     },
     {
-      id: 'west-corridor',
-      label: 'Jalan-jalan',
-      x: -halfW + 3.1,
-      z: -0.4,
+      id: 'front-left-room',
+      label: loungeLabel,
+      x: clampX(-11.1),
+      z: clampZ(4.6),
+      entryDoor: [clampX(-11.1), 2.8],
+      preferredBubble: theme === 'creative' ? '💡' : '☕',
     },
     {
-      id: 'north-window',
-      label: 'Lihat Jendela',
-      x: 0.6,
-      z: -halfD + 3.55,
+      id: 'back-right-pantry',
+      label: pantryLabel,
+      x: clampX(11.1),
+      z: clampZ(-4.5),
+      entryDoor: [clampX(11.2), -2.8],
+      preferredBubble: theme === 'engineering' || theme === 'creative' ? '💡' : '☕',
     },
     {
-      id: 'front-right-plant',
-      label: 'Santai',
-      x: halfW - 2.45,
-      z: halfD - 2.55,
+      id: 'east-corridor',
+      label: 'Koridor Timur',
+      x: clampX(11.2),
+      z: 0.2,
+    },
+    {
+      id: 'front-right-terrace',
+      label: 'Sudut Tanaman',
+      x: clampX(11.2),
+      z: clampZ(6.2),
     },
   ];
 }
 
 export class RoamingController {
-  private floorWidth = 17;
-  private floorDepth = 17;
+  private floorWidth = 28;
+  private floorDepth = 24;
   private floorsById = new Map<string, FloorLayout>();
   private waypointsByFloor = new Map<string, FloorWaypoint[]>();
   private records = new Map<string, InternalAgentRecord>();
@@ -214,12 +209,15 @@ export class RoamingController {
       activeIds.add(agentId);
 
       const { seatX, seatZ, exitX, exitZ } = this.computeSeatAnchors(desk);
+      const suiteDoor: Point2D | null = desk.doorPosition
+        ? { x: desk.doorPosition[0], z: desk.doorPosition[1] }
+        : null;
       const existing = this.records.get(agentId);
 
       if (!existing) {
         const hash = hashString(agentId);
         // Deterministic staggered delay in [3.0, 5.5] seconds
-        const idleDelay = 3.0 + ((hash % 2501) / 1000);
+        const idleDelay = 3.0 + (hash % 2501) / 1000;
         this.records.set(agentId, {
           agentId,
           floorId: desk.floorId,
@@ -230,6 +228,7 @@ export class RoamingController {
           deskY: desk.position[1],
           deskZ: desk.position[2],
           deskRotationY: desk.rotationY,
+          suiteDoor,
           seatX,
           seatZ,
           exitX,
@@ -254,8 +253,7 @@ export class RoamingController {
         });
       } else {
         const floorChanged = existing.floorId !== desk.floorId;
-        const seatMoved =
-          Math.hypot(existing.seatX - seatX, existing.seatZ - seatZ) > 0.05;
+        const seatMoved = Math.hypot(existing.seatX - seatX, existing.seatZ - seatZ) > 0.05;
         existing.floorId = desk.floorId;
         existing.isSubagent = agent.isSubagent;
         existing.status = agent.status;
@@ -263,6 +261,7 @@ export class RoamingController {
         existing.deskY = desk.position[1];
         existing.deskZ = desk.position[2];
         existing.deskRotationY = desk.rotationY;
+        existing.suiteDoor = suiteDoor;
         existing.seatX = seatX;
         existing.seatZ = seatZ;
         existing.exitX = exitX;
@@ -416,7 +415,7 @@ export class RoamingController {
   private stepWalkingOut(rec: InternalAgentRecord, dt: number): void {
     const arrived = this.followPath(rec, WALK_SPEED, dt, WAYPOINT_SNAP_DIST);
 
-    // If walking right past a lone visiting coworker on the same floor, stop and chat!
+    // Opportunistic greeting when walking past a lone visiting coworker in the same open zone
     if (!arrived && this.tryPairWalkingWithVisitor(rec)) {
       return;
     }
@@ -429,20 +428,18 @@ export class RoamingController {
       rec.bubble = wp?.preferredBubble ?? null;
       rec.activityLabel = wp?.label ?? 'Santai';
 
-      // Immediately check if another idle subagent on this floor is ready to chat
       this.tryPairForChat(rec);
     }
   }
 
   private stepVisiting(rec: InternalAgentRecord, dt: number): void {
-    // Opportunistically pair with a nearby visiting subagent on the same floor
     if (this.tryPairForChat(rec)) {
       return;
     }
 
     rec.stateTimer -= dt;
     if (rec.stateTimer <= 0) {
-      // If a coworker is already walking to our waypoint to meet us, hold briefly instead of walking away
+      // Hold briefly if a coworker is already walking to our waypoint to meet us
       const hasIncomingPeer = Array.from(this.records.values()).some(
         (other) =>
           other.agentId !== rec.agentId &&
@@ -461,9 +458,9 @@ export class RoamingController {
 
       const nextWp = this.chooseNextWaypoint(rec);
       if (!nextWp) return;
+      rec.path = this.buildPathToWaypoint(rec, nextWp, false);
       rec.targetWaypointId = nextWp.id;
       rec.activityLabel = nextWp.label;
-      rec.path = this.buildPathToWaypoint(rec, nextWp, false);
       rec.bubble = null;
       rec.mode = 'walking_out';
     }
@@ -480,7 +477,6 @@ export class RoamingController {
       return;
     }
 
-    // Ease smoothly onto non-clipping chat spot
     if (rec.chatSpot) {
       const dx = rec.chatSpot.x - rec.x;
       const dz = rec.chatSpot.z - rec.z;
@@ -495,7 +491,6 @@ export class RoamingController {
       }
     }
 
-    // Face each other smoothly
     const faceDx = partner.x - rec.x;
     const faceDz = partner.z - rec.z;
     if (Math.hypot(faceDx, faceDz) > 0.001) {
@@ -503,7 +498,6 @@ export class RoamingController {
       rec.rotationY = lerpAngle(rec.rotationY, targetRot, TURN_RATE * dt);
     }
 
-    // Cycle cheerful interaction bubbles
     rec.bubbleTimer -= dt;
     if (rec.bubbleTimer <= 0) {
       rec.bubbleIndex = (rec.bubbleIndex + 1) % CHAT_BUBBLES.length;
@@ -534,22 +528,60 @@ export class RoamingController {
     }
   }
 
+  private getEnclosingRoomDoor(x: number, z: number): Point2D | null {
+    // Front-Left Glass Room: x in [-13.5, -8.8], z in [2.8, 11.2], North doorway [-11.1, 2.8]
+    if (x <= -8.7 && z >= 2.6) {
+      return { x: -11.1, z: 2.8 };
+    }
+    // Back-Right Glass Room: x in [9.0, 13.5], z in [-11.3, -2.8], South doorway [11.2, -2.8]
+    if (x >= 8.9 && z <= -2.6) {
+      return { x: 11.2, z: -2.8 };
+    }
+    return null;
+  }
+
   private beginReturnToDesk(rec: InternalAgentRecord): void {
     this.unpair(rec);
+    const prevWp = this.findWaypoint(rec.floorId, rec.targetWaypointId);
     rec.mode = 'returning';
     rec.bubble = null;
     rec.targetWaypointId = null;
     rec.activityLabel = 'Kembali ke meja';
 
+    const path: Point2D[] = [];
+    const insideOwnSuite =
+      rec.suiteDoor !== null &&
+      Math.sign(rec.z) === Math.sign(rec.deskZ) &&
+      Math.abs(rec.z) > 2.6 &&
+      Math.abs(rec.x - rec.suiteDoor.x) < 4.2;
+
+    if (!insideOwnSuite && rec.suiteDoor) {
+      const physicalRoomDoor = this.getEnclosingRoomDoor(rec.x, rec.z);
+      const exitDoor =
+        physicalRoomDoor ??
+        (prevWp?.entryDoor && Math.abs(rec.z) > 2.4
+          ? { x: prevWp.entryDoor[0], z: prevWp.entryDoor[1] }
+          : null);
+
+      // Exit any other glass room cleanly through its doorway to Central Corridor (z = 0)
+      if (exitDoor) {
+        path.push({ x: exitDoor.x, z: exitDoor.z });
+        path.push({ x: exitDoor.x, z: CORRIDOR_Z });
+      } else if (Math.abs(rec.z) > 2.2) {
+        path.push({ x: rec.x, z: CORRIDOR_Z });
+      }
+
+      // Walk along Central Corridor to own suite doorway, then enter cleanly
+      path.push({ x: rec.suiteDoor.x, z: CORRIDOR_Z });
+      path.push({ x: rec.suiteDoor.x, z: rec.suiteDoor.z });
+    }
+
     const distToExit = Math.hypot(rec.exitX - rec.x, rec.exitZ - rec.z);
     if (distToExit > 0.35) {
-      rec.path = [
-        { x: rec.exitX, z: rec.exitZ },
-        { x: rec.seatX, z: rec.seatZ },
-      ];
-    } else {
-      rec.path = [{ x: rec.seatX, z: rec.seatZ }];
+      path.push({ x: rec.exitX, z: rec.exitZ });
     }
+    path.push({ x: rec.seatX, z: rec.seatZ });
+    rec.path = path;
   }
 
   private unpair(rec: InternalAgentRecord): void {
@@ -580,15 +612,37 @@ export class RoamingController {
     for (const rec of [a, b]) {
       const nextWp = this.chooseNextWaypoint(rec);
       if (nextWp) {
+        rec.path = this.buildPathToWaypoint(rec, nextWp, false);
         rec.targetWaypointId = nextWp.id;
         rec.activityLabel = nextWp.label;
-        rec.path = this.buildPathToWaypoint(rec, nextWp, false);
         rec.mode = 'walking_out';
       } else {
         rec.mode = 'visiting';
         rec.stateTimer = 3.0;
       }
     }
+  }
+
+  private isInSameOpenZone(a: InternalAgentRecord, b: InternalAgentRecord): boolean {
+    // Both inside the open Central Corridor (no glass wall between them)
+    if (Math.abs(a.z) <= 2.2 && Math.abs(b.z) <= 2.2) {
+      return true;
+    }
+    if (a.targetWaypointId !== null && a.targetWaypointId === b.targetWaypointId) {
+      const wp = this.findWaypoint(a.floorId, a.targetWaypointId);
+      if (wp?.entryDoor) {
+        // Both agents must already be well inside the glass room past its doorway (|z| >= 3.4)
+        const doorSign = Math.sign(wp.entryDoor[1]);
+        return (
+          Math.sign(a.z) === doorSign &&
+          Math.sign(b.z) === doorSign &&
+          Math.abs(a.z) >= Math.abs(wp.entryDoor[1]) + 0.6 &&
+          Math.abs(b.z) >= Math.abs(wp.entryDoor[1]) + 0.6
+        );
+      }
+      return true;
+    }
+    return false;
   }
 
   private tryPairWalkingWithVisitor(walker: InternalAgentRecord): boolean {
@@ -601,6 +655,7 @@ export class RoamingController {
       if (candidate.floorId !== walker.floorId) continue;
       if (!candidate.isSubagent || candidate.status !== 'idle') continue;
       if (candidate.mode !== 'visiting' || candidate.partnerId !== null) continue;
+      if (!this.isInSameOpenZone(walker, candidate)) continue;
 
       const d = Math.hypot(candidate.x - walker.x, candidate.z - walker.z);
       if (d <= 1.85) {
@@ -625,6 +680,7 @@ export class RoamingController {
       if (candidate.floorId !== rec.floorId) continue;
       if (!candidate.isSubagent || candidate.status !== 'idle') continue;
       if (candidate.mode !== 'visiting' || candidate.partnerId !== null) continue;
+      if (!this.isInSameOpenZone(rec, candidate)) continue;
 
       const d = Math.hypot(candidate.x - rec.x, candidate.z - rec.z);
       const sameWaypoint =
@@ -642,7 +698,6 @@ export class RoamingController {
   }
 
   private pairAgentsForChat(rec: InternalAgentRecord, bestPartner: InternalAgentRecord): boolean {
-    // Compute clean non-clipping chat spots ~CHAT_SPACING units apart
     const halfW = this.floorWidth / 2;
     const halfD = this.floorDepth / 2;
     const midX = clamp((rec.x + bestPartner.x) / 2, -halfW + 1.5, halfW - 1.5);
@@ -690,7 +745,6 @@ export class RoamingController {
     rec.activityLabel = 'Ngobrol';
     bestPartner.activityLabel = 'Ngobrol';
 
-    // Immediately orient toward each other so initial frame looks responsive
     rec.rotationY = Math.atan2(spotB.x - spotA.x, spotB.z - spotA.z);
     bestPartner.rotationY = Math.atan2(spotA.x - spotB.x, spotA.z - spotB.z);
 
@@ -701,7 +755,7 @@ export class RoamingController {
     const list = this.waypointsByFloor.get(rec.floorId);
     if (!list || list.length === 0) return null;
 
-    // Prefer joining a lone visiting or strolling coworker on the same floor so social chats emerge naturally
+    // Prefer joining a lone visiting or strolling coworker on the same floor
     const lonePeer = Array.from(this.records.values()).find(
       (other) =>
         other.agentId !== rec.agentId &&
@@ -718,9 +772,8 @@ export class RoamingController {
       const shared = this.findWaypoint(rec.floorId, lonePeer.targetWaypointId);
       if (shared) {
         if (lonePeer.mode === 'visiting') {
-          // Hold long enough for the incoming coworker to arrive across larger floors
           const travelEta = Math.hypot(shared.x - rec.x, shared.z - rec.z) / WALK_SPEED;
-          lonePeer.stateTimer = Math.max(lonePeer.stateTimer, Math.min(16, travelEta + 2.5));
+          lonePeer.stateTimer = Math.max(lonePeer.stateTimer, Math.min(18, travelEta + 3.0));
         }
         return shared;
       }
@@ -738,32 +791,46 @@ export class RoamingController {
     return list?.find((w) => w.id === waypointId) ?? null;
   }
 
+  /**
+   * Doorway-aware path builder:
+   * - Exits the agent's glass suite through its open doorway into the Central Corridor (z = 0)
+   * - Exits any glass destination room through its entryDoor back into z = 0
+   * - Enters destination glass rooms cleanly through their entryDoor
+   */
   private buildPathToWaypoint(
     rec: InternalAgentRecord,
     wp: FloorWaypoint,
     fromDesk: boolean,
   ): Point2D[] {
     const path: Point2D[] = [];
-    const halfW = this.floorWidth / 2;
-    const halfD = this.floorDepth / 2;
 
     if (fromDesk) {
       path.push({ x: rec.exitX, z: rec.exitZ });
+      if (rec.suiteDoor) {
+        path.push({ x: rec.suiteDoor.x, z: rec.suiteDoor.z });
+        path.push({ x: rec.suiteDoor.x, z: CORRIDOR_Z });
+      }
+    } else {
+      const curWp = this.findWaypoint(rec.floorId, rec.targetWaypointId);
+      const physicalRoomDoor = this.getEnclosingRoomDoor(rec.x, rec.z);
+      const exitDoor =
+        physicalRoomDoor ??
+        (curWp?.entryDoor && Math.abs(rec.z) > 2.4
+          ? { x: curWp.entryDoor[0], z: curWp.entryDoor[1] }
+          : null);
+      if (exitDoor) {
+        path.push({ x: exitDoor.x, z: exitDoor.z });
+        path.push({ x: exitDoor.x, z: CORRIDOR_Z });
+      } else if (Math.abs(rec.z) > 2.2) {
+        path.push({ x: rec.x, z: CORRIDOR_Z });
+      }
     }
 
-    // Route through perimeter corridor hub when crossing between opposite sides of the room
-    const startX = fromDesk ? rec.exitX : rec.x;
-    const startZ = fromDesk ? rec.exitZ : rec.z;
-    const dist = Math.hypot(wp.x - startX, wp.z - startZ);
+    const targetCorridorX = wp.entryDoor ? wp.entryDoor[0] : wp.x;
+    path.push({ x: targetCorridorX, z: CORRIDOR_Z });
 
-    if (dist > 6.5) {
-      const northCorridorZ = -halfD + 3.55;
-      const westCorridorX = -halfW + 3.1;
-      if (Math.abs(wp.z - northCorridorZ) < 2.2) {
-        path.push({ x: westCorridorX, z: northCorridorZ });
-      } else {
-        path.push({ x: westCorridorX, z: clamp(startZ, -halfD + 3.6, halfD - 4.4) });
-      }
+    if (wp.entryDoor) {
+      path.push({ x: wp.entryDoor[0], z: wp.entryDoor[1] });
     }
 
     path.push({ x: wp.x, z: wp.z });

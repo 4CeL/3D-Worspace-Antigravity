@@ -14,6 +14,8 @@ interface TeamClusterGroupProps {
   onSelectAgent: (agentId: string) => void;
 }
 
+const disableRaycast = () => null;
+
 export const TeamClusterGroup: React.FC<TeamClusterGroupProps> = ({
   cluster,
   agents,
@@ -24,51 +26,66 @@ export const TeamClusterGroup: React.FC<TeamClusterGroupProps> = ({
   onSelectAgent,
 }) => {
   const [cx, cy, cz] = cluster.center;
+  const labelPos: [number, number, number] = cluster.doorPosition
+    ? [cluster.doorPosition[0], cy + 2.68, cluster.doorPosition[1]]
+    : [cx, cy + 0.12, cz + cluster.rugDepth / 2 + 0.35];
 
   return (
     <group>
-      {/* Soft pastel team rug */}
-      <mesh position={[cx, cy + 0.015, cz]} receiveShadow>
-        <boxGeometry args={[cluster.rugWidth, 0.03, cluster.rugDepth]} />
+      {/* Soft pastel team suite carpet */}
+      <mesh position={[cx, cy + 0.015, cz]} receiveShadow raycast={disableRaycast}>
+        <boxGeometry args={[cluster.rugWidth, 0.026, cluster.rugDepth]} />
         <meshStandardMaterial color={cluster.rugColor} roughness={0.95} />
       </mesh>
 
-      {/* Subtle rug border accent */}
-      <mesh position={[cx, cy + 0.012, cz]}>
-        <boxGeometry args={[cluster.rugWidth + 0.14, 0.022, cluster.rugDepth + 0.14]} />
+      {/* Subtle carpet border accent */}
+      <mesh position={[cx, cy + 0.012, cz]} raycast={disableRaycast}>
+        <boxGeometry args={[cluster.rugWidth + 0.14, 0.02, cluster.rugDepth + 0.14]} />
         <meshStandardMaterial color="#d6c8b6" roughness={0.9} />
       </mesh>
 
-      {/* Project Nameplate on front edge of rug */}
-      <Html
-        position={[cx, cy + 0.12, cz + cluster.rugDepth / 2 + 0.35]}
-        center
-        distanceFactor={16}
-        zIndexRange={[5, 0]}
-      >
-        <div className="pointer-events-none select-none rounded-full border border-stone-200/80 bg-white/85 px-2.5 py-0.5 text-[10px] font-semibold tracking-wide text-stone-600 shadow-sm backdrop-blur-xs">
+      {/* Architectural glass-suite door-header project nameplate */}
+      <Html position={labelPos} center distanceFactor={18} zIndexRange={[5, 0]}>
+        <div className="pointer-events-none select-none whitespace-nowrap rounded-full border border-stone-200/90 bg-white/90 px-2.5 py-0.5 text-[10px] font-semibold tracking-wide text-stone-700 shadow-sm backdrop-blur-xs">
           {cluster.projectName}
         </div>
       </Html>
 
-      {/* Member desks */}
+      {/* Member desks + subtle individual glass privacy divider behind each desk */}
       {cluster.agentIds.map((agentId) => {
         const agent = agents[agentId];
         const placement = desks[agentId];
         if (!agent || !placement) return null;
+        const [dx, dy, dz] = placement.position;
 
         return (
-          <AgentDesk
-            key={agentId}
-            agent={agent}
-            position={placement.position}
-            rotationY={placement.rotationY}
-            isLead={placement.isLead}
-            isSelected={selectedAgentId === agentId}
-            showLabels={showLabels}
-            isAway={roamingAgentIds?.has(agentId) ?? false}
-            onSelect={onSelectAgent}
-          />
+          <React.Fragment key={agentId}>
+            <mesh
+              position={[dx, dy + 0.96, dz - 0.56]}
+              rotation={[0, placement.rotationY, 0]}
+              raycast={disableRaycast}
+            >
+              <boxGeometry args={[placement.isLead ? 1.66 : 1.38, 0.36, 0.022]} />
+              <meshStandardMaterial
+                color="#dbeafe"
+                transparent
+                opacity={0.28}
+                roughness={0.15}
+                metalness={0.15}
+                depthWrite={false}
+              />
+            </mesh>
+            <AgentDesk
+              agent={agent}
+              position={placement.position}
+              rotationY={placement.rotationY}
+              isLead={placement.isLead}
+              isSelected={selectedAgentId === agentId}
+              showLabels={showLabels}
+              isAway={roamingAgentIds?.has(agentId) ?? false}
+              onSelect={onSelectAgent}
+            />
+          </React.Fragment>
         );
       })}
     </group>

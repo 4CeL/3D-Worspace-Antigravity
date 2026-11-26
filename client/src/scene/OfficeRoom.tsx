@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { Html } from '@react-three/drei';
 import type { FloorTheme } from '@office/shared';
-import { FLOOR_HEIGHT } from './officeLayout';
+import { FLOOR_HEIGHT, type GlassSuiteSlot } from './officeLayout';
 import { FloorDecor } from './FloorDecor';
 import { RoomPartitions } from './RoomPartitions';
 
@@ -12,6 +12,8 @@ interface OfficeRoomProps {
   floorIndex?: number;
   floorName?: string;
   floorTheme?: FloorTheme;
+  suites?: GlassSuiteSlot[];
+  occupiedSuiteIds?: ReadonlySet<string>;
   hasFloorAbove?: boolean;
   isFocused?: boolean;
   coffeeCorner?: [number, number, number];
@@ -68,6 +70,8 @@ export const OfficeRoom: React.FC<OfficeRoomProps> = ({
   floorIndex = 1,
   floorName = 'Lantai 1',
   floorTheme,
+  suites,
+  occupiedSuiteIds,
   hasFloorAbove = false,
   isFocused = false,
   onDeselect,
@@ -225,6 +229,8 @@ export const OfficeRoom: React.FC<OfficeRoomProps> = ({
         floorWidth={floorWidth}
         floorDepth={floorDepth}
         theme={floorTheme ?? 'engineering'}
+        suites={suites}
+        occupiedSuiteIds={occupiedSuiteIds}
       />
 
       {/* Exterior clickable floor badge on front-right slab edge */}
