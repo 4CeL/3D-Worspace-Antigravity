@@ -48,8 +48,16 @@ export const ConnectionArcs: React.FC<ConnectionArcsProps> = ({
       const toDesk = desks[agent.id];
       if (!fromDesk || !toDesk) continue;
 
-      const start = new THREE.Vector3(fromDesk.position[0], 1.15, fromDesk.position[2]);
-      const end = new THREE.Vector3(toDesk.position[0], 1.15, toDesk.position[2]);
+      const start = new THREE.Vector3(
+        fromDesk.position[0],
+        fromDesk.position[1] + 1.15,
+        fromDesk.position[2],
+      );
+      const end = new THREE.Vector3(
+        toDesk.position[0],
+        toDesk.position[1] + 1.15,
+        toDesk.position[2],
+      );
       const mid = start.clone().add(end).multiplyScalar(0.5);
       mid.y += 1.05;
 

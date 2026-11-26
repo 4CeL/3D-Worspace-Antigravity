@@ -5,13 +5,20 @@ import {
   type ActivityEvent,
   type AgentNode,
   type AgentStatus,
+  type BuildingConfig,
   type FileAction,
   type FileTouch,
+  type FloorConfig,
   type HookEventPayload,
   type OfficeSnapshot,
   type RecencyWindow,
   type TeamCluster,
 } from '@office/shared';
+import {
+  MAX_FLOORS,
+  createDefaultBuildingConfig,
+  normalizeBuildingConfig,
+} from './buildingStore.js';
 import type { ParsedTranscriptDelta } from './transcriptParser.js';
 
 interface ParentLink {
@@ -100,12 +107,15 @@ function getRecencyCutoffMs(recency: RecencyWindow, now: number): number {
 
 export interface StateStoreOptions {
   initialAliases?: Record<string, string>;
+  initialBuilding?: BuildingConfig;
 }
 
 export class StateStore {
   private readonly agents = new Map<string, InternalAgent>();
   private readonly parentLinks = new Map<string, ParentLink>();
   private readonly customAliases = new Map<string, string>();
+  private readonly floors: FloorConfig[] = [];
+  private readonly teamFloors = new Map<string, string>();
   private readonly recentDedup = new Map<string, { timestamp: number; source: 'hook' | 'transcript' }>();
   private readonly seenToolCallIds = new Set<string>();
   private readonly pulses: ActivePulse[] = [];
@@ -122,6 +132,74 @@ export class StateStore {
         }
       }
     }
+
+    const building = options.initialBuilding
+      ? normalizeBuildingConfig(options.initialBuilding)
+      : createDefaultBuildingConfig();
+    this.floors.push(...building.floors);
+    for (const [rootId, floorId] of Object.entries(building.teamFloors)) {
+      this.teamFloors.set(rootId, floorId);
+    }
+  }
+
+  addFloor(name?: string): FloorConfig | null {
+    if (this.floors.length >= MAX_FLOORS) return null;
+    const nextIndex = this.floors.length + 1;
+    let id = `floor-${nextIndex}`;
+    while (this.floors.some((f) => f.id === id)) {
+      id = `floor-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    }
+    const label =
+      typeof name === 'string' && name.trim() ? name.trim().slice(0, 40) : `Lantai ${nextIndex}`;
+    const floor: FloorConfig = { id, index: nextIndex, name: label };
+    this.floors.push(floor);
+    this.emitChange();
+    return floor;
+  }
+
+  renameFloor(floorId: string, name: string): boolean {
+    const target = this.floors.find((f) => f.id === floorId);
+    const trimmed = typeof name === 'string' ? name.trim().slice(0, 40) : '';
+    if (!target || !trimmed) return false;
+    target.name = trimmed;
+    this.emitChange();
+    return true;
+  }
+
+  deleteFloor(floorId: string): boolean {
+    const idx = this.floors.findIndex((f) => f.id === floorId);
+    if (idx <= 0 || this.floors.length <= 1) return false; // Floor 1 cannot be deleted
+    const fallbackFloorId = this.floors[0].id;
+    this.floors.splice(idx, 1);
+    this.floors.forEach((f, i) => {
+      f.index = i + 1;
+    });
+    for (const [rootId, assigned] of this.teamFloors.entries()) {
+      if (assigned === floorId) {
+        this.teamFloors.set(rootId, fallbackFloorId);
+      }
+    }
+    this.emitChange();
+    return true;
+  }
+
+  setTeamFloor(rootId: string, floorId: string): boolean {
+    const trimmedRoot = rootId.trim();
+    if (!trimmedRoot || !this.floors.some((f) => f.id === floorId)) return false;
+    this.teamFloors.set(trimmedRoot, floorId);
+    this.emitChange();
+    return true;
+  }
+
+  getBuildingConfig(): BuildingConfig {
+    const teamFloors: Record<string, string> = {};
+    for (const [k, v] of this.teamFloors.entries()) {
+      teamFloors[k] = v;
+    }
+    return {
+      floors: this.floors.map((f) => ({ ...f })),
+      teamFloors,
+    };
   }
 
   setAgentAlias(agentId: string, name: string | null): void {
@@ -628,6 +706,12 @@ export class StateStore {
       const workspacePath =
         members.find((m) => m.workspacePath)?.workspacePath || lead.workspacePath;
 
+      const assignedFloorId = this.teamFloors.get(rootId);
+      const validFloorId =
+        assignedFloorId && this.floors.some((f) => f.id === assignedFloorId)
+          ? assignedFloorId
+          : this.floors[0].id;
+
       clusters.push({
         rootId,
         projectName,
@@ -635,6 +719,7 @@ export class StateStore {
         title: leadAlias || lead.displayName,
         leadAgentId: lead.id,
         agentIds: members.map((m) => m.id),
+        floorId: validFloorId,
         lastUpdatedAt: clusterUpdatedAt,
       });
 
@@ -678,6 +763,7 @@ export class StateStore {
       hookActive: this.hookActive,
       lastHookAt: this.lastHookAt,
       demoMode: false,
+      floors: this.floors.map((f) => ({ ...f })),
       clusters,
       agents: agentsOut,
       activePulses,

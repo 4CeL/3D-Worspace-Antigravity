@@ -3,9 +3,11 @@ import type {
   AgentNode,
   AgentStatus,
   FileAction,
+  FloorConfig,
   OfficeSnapshot,
   TeamCluster,
 } from '@office/shared';
+import { MAX_FLOORS } from './buildingStore.js';
 
 interface DemoPhase {
   leadStatus: AgentStatus;
@@ -72,10 +74,64 @@ export class DemoSimulator {
   private tickIndex = 0;
   private timer: NodeJS.Timeout | null = null;
   private readonly customAliases = new Map<string, string>();
+  private readonly floors: FloorConfig[] = [
+    { id: 'demo-floor-1', index: 1, name: 'Core Office' },
+    { id: 'demo-floor-2', index: 2, name: 'Mobile Lab' },
+  ];
+  private readonly teamFloors = new Map<string, string>([
+    ['demo-lead-1', 'demo-floor-1'],
+    ['demo-lead-2', 'demo-floor-2'],
+  ]);
   private snapshot: OfficeSnapshot;
 
   constructor() {
     this.snapshot = this.buildSnapshot(Date.now());
+  }
+
+  addFloor(name?: string): FloorConfig | null {
+    if (this.floors.length >= MAX_FLOORS) return null;
+    const nextIndex = this.floors.length + 1;
+    let id = `demo-floor-${nextIndex}`;
+    while (this.floors.some((f) => f.id === id)) {
+      id = `demo-floor-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    }
+    const label =
+      typeof name === 'string' && name.trim() ? name.trim().slice(0, 40) : `Lantai ${nextIndex}`;
+    const floor: FloorConfig = { id, index: nextIndex, name: label };
+    this.floors.push(floor);
+    this.snapshot = this.buildSnapshot(Date.now());
+    return floor;
+  }
+
+  renameFloor(floorId: string, name: string): boolean {
+    const target = this.floors.find((f) => f.id === floorId);
+    const trimmed = typeof name === 'string' ? name.trim().slice(0, 40) : '';
+    if (!target || !trimmed) return false;
+    target.name = trimmed;
+    this.snapshot = this.buildSnapshot(Date.now());
+    return true;
+  }
+
+  deleteFloor(floorId: string): boolean {
+    const idx = this.floors.findIndex((f) => f.id === floorId);
+    if (idx <= 0 || this.floors.length <= 1) return false;
+    const fallback = this.floors[0].id;
+    this.floors.splice(idx, 1);
+    this.floors.forEach((f, i) => {
+      f.index = i + 1;
+    });
+    for (const [rootId, fid] of this.teamFloors.entries()) {
+      if (fid === floorId) this.teamFloors.set(rootId, fallback);
+    }
+    this.snapshot = this.buildSnapshot(Date.now());
+    return true;
+  }
+
+  setTeamFloor(rootId: string, floorId: string): boolean {
+    if (!this.floors.some((f) => f.id === floorId)) return false;
+    this.teamFloors.set(rootId, floorId);
+    this.snapshot = this.buildSnapshot(Date.now());
+    return true;
   }
 
   setAgentAlias(agentId: string, name: string | null): OfficeSnapshot {
@@ -344,6 +400,13 @@ export class DemoSimulator {
     const finalSub2 = applyAlias(sub2);
     const finalLead2 = applyAlias(lead2);
 
+    const resolveFloor = (rootId: string): string => {
+      const assigned = this.teamFloors.get(rootId);
+      return assigned && this.floors.some((f) => f.id === assigned)
+        ? assigned
+        : this.floors[0].id;
+    };
+
     const clusters: TeamCluster[] = [
       {
         rootId: 'demo-lead-1',
@@ -352,6 +415,7 @@ export class DemoSimulator {
         title: finalLead1.displayName,
         leadAgentId: 'demo-lead-1',
         agentIds: ['demo-lead-1', 'demo-sub-1', 'demo-sub-2'],
+        floorId: resolveFloor('demo-lead-1'),
         lastUpdatedAt: now,
       },
       {
@@ -361,6 +425,7 @@ export class DemoSimulator {
         title: finalLead2.displayName,
         leadAgentId: 'demo-lead-2',
         agentIds: ['demo-lead-2'],
+        floorId: resolveFloor('demo-lead-2'),
         lastUpdatedAt: now - 140_000,
       },
     ];
@@ -381,6 +446,7 @@ export class DemoSimulator {
       hookActive: true,
       lastHookAt: now,
       demoMode: true,
+      floors: this.floors.map((f) => ({ ...f })),
       clusters,
       agents: {
         [finalLead1.id]: finalLead1,

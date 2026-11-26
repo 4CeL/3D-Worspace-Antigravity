@@ -5,19 +5,23 @@ import {
   Copy,
   FileCode2,
   FolderGit2,
+  Layers,
   Pencil,
   RotateCcw,
   Users,
   X,
 } from 'lucide-react';
-import type { AgentNode, AgentStatus, FileAction } from '@office/shared';
+import type { AgentNode, AgentStatus, FileAction, FloorConfig } from '@office/shared';
 
 interface InspectorDrawerProps {
   agent: AgentNode | null;
   allAgents: Record<string, AgentNode>;
+  floors?: FloorConfig[];
+  currentFloorId?: string;
   onClose: () => void;
   onFocusAgent: (agentId: string) => void;
   onRenameAgent?: (agentId: string, name: string | null) => void;
+  onMoveTeamFloor?: (rootId: string, floorId: string) => void;
 }
 
 const STATUS_BADGE: Record<AgentStatus, { label: string; cls: string; dot: string }> = {
@@ -49,9 +53,12 @@ function formatTimeAgo(timestamp: number): string {
 export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
   agent,
   allAgents,
+  floors,
+  currentFloorId,
   onClose,
   onFocusAgent,
   onRenameAgent,
+  onMoveTeamFloor,
 }) => {
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [editingName, setEditingName] = useState(false);
@@ -221,6 +228,32 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
             {agent.projectName}
           </span>
         </div>
+
+        {/* Team floor selector */}
+        {floors && floors.length > 0 && onMoveTeamFloor && (
+          <div className="mt-2.5 flex items-center justify-between gap-2 rounded-xl border border-stone-200/80 bg-stone-50/80 px-2.5 py-1.5">
+            <label
+              htmlFor="inspector-team-floor"
+              className="flex items-center gap-1.5 text-[11px] font-semibold text-stone-600"
+            >
+              <Layers className="h-3.5 w-3.5 text-emerald-600" />
+              <span>Lantai Tim</span>
+            </label>
+            <select
+              id="inspector-team-floor"
+              aria-label="Lantai Tim"
+              value={currentFloorId || floors[0].id}
+              onChange={(e) => onMoveTeamFloor(agent.rootId, e.target.value)}
+              className="rounded-lg border border-stone-200 bg-white px-2 py-0.5 text-xs font-medium text-stone-700 outline-none focus:border-emerald-500"
+            >
+              {floors.map((f) => (
+                <option key={f.id} value={f.id}>
+                  L{f.index} · {f.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {agent.focusText && (
           <p className="mt-2.5 rounded-xl bg-amber-50/70 px-3 py-2 text-xs text-stone-700">

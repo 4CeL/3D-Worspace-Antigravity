@@ -5,6 +5,7 @@ import '@testing-library/jest-dom/vitest';
 import type { AgentNode } from '@office/shared';
 import { TopBar } from '../ui/TopBar';
 import { InspectorDrawer } from '../ui/InspectorDrawer';
+import { FloorElevator } from '../ui/FloorElevator';
 import { useOfficeSocket } from '../hooks/useOfficeSocket';
 import { filterSnapshotForView } from '../ui/filterSnapshot';
 
@@ -190,6 +191,67 @@ describe('InspectorDrawer', () => {
     fireEvent.click(screen.getByRole('button', { name: /Reset nama/i }));
     expect(onRenameAgent).toHaveBeenCalledWith('lead-1', null);
   });
+
+  it('allows moving the agent team to another floor via the Lantai Gedung dropdown', () => {
+    const onMoveTeamFloor = vi.fn();
+    render(
+      <InspectorDrawer
+        agent={leadAgent}
+        allAgents={{ [leadAgent.id]: leadAgent, [subAgent.id]: subAgent }}
+        floors={[
+          { id: 'floor-1', index: 1, name: 'Lantai 1' },
+          { id: 'floor-2', index: 2, name: 'Mobile Lab' },
+        ]}
+        currentFloorId="floor-1"
+        onClose={vi.fn()}
+        onFocusAgent={vi.fn()}
+        onMoveTeamFloor={onMoveTeamFloor}
+      />,
+    );
+
+    const select = screen.getByLabelText(/Lantai Tim/i);
+    fireEvent.change(select, { target: { value: 'floor-2' } });
+    expect(onMoveTeamFloor).toHaveBeenCalledWith('lead-1', 'floor-2');
+  });
+});
+
+describe('FloorElevator', () => {
+  it('renders floors top-to-bottom, triggers focus, addFloor, and deleteFloor for floors above Floor 1', () => {
+    const onSelectFloor = vi.fn();
+    const onAddFloor = vi.fn();
+    const onRenameFloor = vi.fn();
+    const onDeleteFloor = vi.fn();
+
+    render(
+      <FloorElevator
+        floors={[
+          { id: 'floor-1', index: 1, name: 'Core Office' },
+          { id: 'floor-2', index: 2, name: 'Mobile Lab' },
+        ]}
+        focusedFloorIndex={null}
+        floorStats={{
+          'floor-1': { active: 2, total: 3 },
+          'floor-2': { active: 1, total: 1 },
+        }}
+        onSelectFloor={onSelectFloor}
+        onAddFloor={onAddFloor}
+        onRenameFloor={onRenameFloor}
+        onDeleteFloor={onDeleteFloor}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Tambah Lantai/i }));
+    expect(onAddFloor).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: /L2/i }));
+    expect(onSelectFloor).toHaveBeenCalledWith(2);
+
+    fireEvent.click(screen.getByRole('button', { name: /Semua/i }));
+    expect(onSelectFloor).toHaveBeenCalledWith(null);
+
+    fireEvent.click(screen.getByRole('button', { name: /Hapus Lantai 2/i }));
+    expect(onDeleteFloor).toHaveBeenCalledWith('floor-2');
+  });
 });
 
 describe('useOfficeSocket StrictMode guard', () => {
@@ -275,6 +337,7 @@ describe('filterSnapshotForView', () => {
       hookActive: true,
       lastHookAt: Date.now(),
       demoMode: false,
+      floors: [{ id: 'floor-1', index: 1, name: 'Lantai 1' }],
       clusters: [
         {
           rootId: idleLead.id,
@@ -282,6 +345,7 @@ describe('filterSnapshotForView', () => {
           title: idleLead.displayName,
           leadAgentId: idleLead.id,
           agentIds: [idleLead.id, activeSub.id],
+          floorId: 'floor-1',
           lastUpdatedAt: Date.now(),
         },
       ],

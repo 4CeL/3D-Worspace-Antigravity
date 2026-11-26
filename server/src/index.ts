@@ -10,6 +10,7 @@ const brainDir =
   path.join(os.homedir(), '.gemini', 'antigravity', 'brain');
 const staticDir = path.resolve(__dirname, '../../client/dist');
 const aliasFilePath = path.resolve(__dirname, '../data/agent-aliases.json');
+const buildingFilePath = path.resolve(__dirname, '../data/building-config.json');
 
 const office = await createOfficeServer({
   port,
@@ -17,6 +18,7 @@ const office = await createOfficeServer({
   brainDir,
   staticDir,
   aliasFilePath,
+  buildingFilePath,
 });
 
 console.log(`\n🏢 Antigravity 3D Office Telemetry Server aktif di http://${office.host}:${office.port}`);

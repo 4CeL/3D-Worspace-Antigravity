@@ -11,6 +11,7 @@ const EMPTY_SNAPSHOT: OfficeSnapshot = {
   hookActive: false,
   lastHookAt: null,
   demoMode: false,
+  floors: [{ id: 'floor-1', index: 1, name: 'Lantai 1' }],
   clusters: [],
   agents: {},
   activePulses: [],
@@ -23,6 +24,10 @@ export interface UseOfficeSocketResult {
   setRecency: (next: RecencyWindow) => void;
   toggleDemo: (enabled: boolean) => Promise<void>;
   renameAgent: (agentId: string, name: string | null) => Promise<void>;
+  addFloor: (name?: string) => Promise<{ id: string; index: number; name: string } | null>;
+  renameFloor: (floorId: string, name: string) => Promise<void>;
+  deleteFloor: (floorId: string) => Promise<void>;
+  moveTeamFloor: (rootId: string, floorId: string) => Promise<void>;
 }
 
 export function useOfficeSocket(): UseOfficeSocketResult {
@@ -66,6 +71,57 @@ export function useOfficeSocket(): UseOfficeSocketResult {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ agentId, name }),
+      });
+    } catch {
+      // ignore transient network errors
+    }
+  }, []);
+
+  const addFloor = useCallback(async (name?: string) => {
+    try {
+      const res = await fetch('/api/floors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      if (!res.ok) return null;
+      const body = (await res.json()) as { floor?: { id: string; index: number; name: string } };
+      return body.floor ?? null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const renameFloor = useCallback(async (floorId: string, name: string) => {
+    try {
+      await fetch('/api/floors/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ floorId, name }),
+      });
+    } catch {
+      // ignore transient network errors
+    }
+  }, []);
+
+  const deleteFloor = useCallback(async (floorId: string) => {
+    try {
+      await fetch('/api/floors/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ floorId }),
+      });
+    } catch {
+      // ignore transient network errors
+    }
+  }, []);
+
+  const moveTeamFloor = useCallback(async (rootId: string, floorId: string) => {
+    try {
+      await fetch('/api/team-floor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rootId, floorId }),
       });
     } catch {
       // ignore transient network errors
@@ -146,5 +202,9 @@ export function useOfficeSocket(): UseOfficeSocketResult {
     setRecency,
     toggleDemo,
     renameAgent,
+    addFloor,
+    renameFloor,
+    deleteFloor,
+    moveTeamFloor,
   };
 }

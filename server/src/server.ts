@@ -10,6 +10,7 @@ import type {
   ServerMessage,
 } from '@office/shared';
 import { loadAliases, saveAliases } from './aliasStore.js';
+import { loadBuildingConfig, saveBuildingConfig } from './buildingStore.js';
 import { DemoSimulator } from './demoSimulator.js';
 import { StateStore } from './stateStore.js';
 import { TranscriptWatcher } from './transcriptWatcher.js';
@@ -20,6 +21,7 @@ export interface OfficeServerOptions {
   brainDir?: string;
   staticDir?: string;
   aliasFilePath?: string;
+  buildingFilePath?: string;
 }
 
 export interface RunningOfficeServer {
@@ -97,7 +99,10 @@ export async function createOfficeServer(
   const host = options.host ?? '127.0.0.1';
   const requestedPort = options.port ?? Number(process.env.OFFICE_PORT || 4174);
   const initialAliases = options.aliasFilePath ? loadAliases(options.aliasFilePath) : {};
-  const stateStore = new StateStore({ initialAliases });
+  const initialBuilding = options.buildingFilePath
+    ? loadBuildingConfig(options.buildingFilePath)
+    : undefined;
+  const stateStore = new StateStore({ initialAliases, initialBuilding });
   const demoSimulator = new DemoSimulator();
   const watcher = options.brainDir ? new TranscriptWatcher({ brainDir: options.brainDir }) : null;
 
@@ -235,6 +240,102 @@ export async function createOfficeServer(
           if (options.aliasFilePath) {
             saveAliases(options.aliasFilePath, stateStore.getAliases());
           }
+        }
+        sendJson(res, 200, { ok: true });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Bad request';
+        sendJson(res, 400, { ok: false, error: msg });
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/floors') {
+      try {
+        const body = (await readJsonBody(req)) as { name?: unknown };
+        const name = typeof body?.name === 'string' ? body.name : undefined;
+        const floor = demoMode ? demoSimulator.addFloor(name) : stateStore.addFloor(name);
+        if (!floor) {
+          sendJson(res, 400, { ok: false, error: 'Maximum floors reached' });
+          return;
+        }
+        if (demoMode) {
+          broadcastSnapshots();
+        } else if (options.buildingFilePath) {
+          saveBuildingConfig(options.buildingFilePath, stateStore.getBuildingConfig());
+        }
+        sendJson(res, 200, { ok: true, floor });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Bad request';
+        sendJson(res, 400, { ok: false, error: msg });
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/floors/rename') {
+      try {
+        const body = (await readJsonBody(req)) as { floorId?: unknown; name?: unknown };
+        const floorId = typeof body?.floorId === 'string' ? body.floorId.trim() : '';
+        const name = typeof body?.name === 'string' ? body.name : '';
+        const ok = demoMode
+          ? demoSimulator.renameFloor(floorId, name)
+          : stateStore.renameFloor(floorId, name);
+        if (!ok) {
+          sendJson(res, 400, { ok: false, error: 'Invalid floorId or name' });
+          return;
+        }
+        if (demoMode) {
+          broadcastSnapshots();
+        } else if (options.buildingFilePath) {
+          saveBuildingConfig(options.buildingFilePath, stateStore.getBuildingConfig());
+        }
+        sendJson(res, 200, { ok: true });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Bad request';
+        sendJson(res, 400, { ok: false, error: msg });
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/floors/delete') {
+      try {
+        const body = (await readJsonBody(req)) as { floorId?: unknown };
+        const floorId = typeof body?.floorId === 'string' ? body.floorId.trim() : '';
+        const ok = demoMode
+          ? demoSimulator.deleteFloor(floorId)
+          : stateStore.deleteFloor(floorId);
+        if (!ok) {
+          sendJson(res, 400, { ok: false, error: 'Cannot delete floor' });
+          return;
+        }
+        if (demoMode) {
+          broadcastSnapshots();
+        } else if (options.buildingFilePath) {
+          saveBuildingConfig(options.buildingFilePath, stateStore.getBuildingConfig());
+        }
+        sendJson(res, 200, { ok: true });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Bad request';
+        sendJson(res, 400, { ok: false, error: msg });
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/team-floor') {
+      try {
+        const body = (await readJsonBody(req)) as { rootId?: unknown; floorId?: unknown };
+        const rootId = typeof body?.rootId === 'string' ? body.rootId.trim() : '';
+        const floorId = typeof body?.floorId === 'string' ? body.floorId.trim() : '';
+        const ok = demoMode
+          ? demoSimulator.setTeamFloor(rootId, floorId)
+          : stateStore.setTeamFloor(rootId, floorId);
+        if (!ok) {
+          sendJson(res, 400, { ok: false, error: 'Invalid rootId or floorId' });
+          return;
+        }
+        if (demoMode) {
+          broadcastSnapshots();
+        } else if (options.buildingFilePath) {
+          saveBuildingConfig(options.buildingFilePath, stateStore.getBuildingConfig());
         }
         sendJson(res, 200, { ok: true });
       } catch (err) {

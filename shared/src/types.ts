@@ -59,6 +59,17 @@ export interface AgentNode {
   errorMessage?: string;
 }
 
+export interface FloorConfig {
+  id: string;
+  index: number;
+  name: string;
+}
+
+export interface BuildingConfig {
+  floors: FloorConfig[];
+  teamFloors: Record<string, string>;
+}
+
 export interface TeamCluster {
   rootId: string;
   projectName: string;
@@ -66,6 +77,7 @@ export interface TeamCluster {
   title: string;
   leadAgentId: string;
   agentIds: string[];
+  floorId: string;
   lastUpdatedAt: number;
 }
 
@@ -81,6 +93,7 @@ export interface OfficeSnapshot {
   hookActive: boolean;
   lastHookAt: number | null;
   demoMode: boolean;
+  floors: FloorConfig[];
   clusters: TeamCluster[];
   agents: Record<string, AgentNode>;
   activePulses: ActivePulse[];

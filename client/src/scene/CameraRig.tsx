@@ -3,9 +3,13 @@ import { OrbitControls } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
+import { FLOOR_HEIGHT } from './officeLayout';
 
 interface CameraRigProps {
   floorSize: number;
+  visibleFloorCount: number;
+  focusedFloorIndex: number | null;
+  floorFocusNonce: number;
   focusTarget: [number, number, number] | null;
   focusNonce: number;
   resetNonce: number;
@@ -13,6 +17,9 @@ interface CameraRigProps {
 
 export const CameraRig: React.FC<CameraRigProps> = ({
   floorSize,
+  visibleFloorCount,
+  focusedFloorIndex,
+  floorFocusNonce,
   focusTarget,
   focusNonce,
   resetNonce,
@@ -22,13 +29,39 @@ export const CameraRig: React.FC<CameraRigProps> = ({
   const desiredTarget = useRef<THREE.Vector3 | null>(null);
   const desiredPos = useRef<THREE.Vector3 | null>(null);
 
-  const defaultDist = Math.max(13, floorSize * 0.85);
-  const defaultDistRef = useRef(defaultDist);
-  defaultDistRef.current = defaultDist;
+  const floorSizeRef = useRef(floorSize);
+  floorSizeRef.current = floorSize;
+
+  const visibleFloorCountRef = useRef(visibleFloorCount);
+  visibleFloorCountRef.current = visibleFloorCount;
+
+  const focusedFloorRef = useRef(focusedFloorIndex);
+  focusedFloorRef.current = focusedFloorIndex;
 
   const focusTargetRef = useRef(focusTarget);
   focusTargetRef.current = focusTarget;
 
+  const computeOverviewPose = () => {
+    const floors = Math.max(1, visibleFloorCountRef.current);
+    const totalH = (floors - 1) * FLOOR_HEIGHT + 3.5;
+    const midY = ((floors - 1) * FLOOR_HEIGHT) / 2 + 0.6;
+    const dist = Math.max(13.5, floorSizeRef.current * 0.88, totalH * 1.35);
+    return {
+      target: new THREE.Vector3(0, midY, 0),
+      pos: new THREE.Vector3(dist, midY + dist * 0.78, dist),
+    };
+  };
+
+  const computeFloorPose = (floorIdx: number) => {
+    const floorY = (floorIdx - 1) * FLOOR_HEIGHT;
+    const dist = Math.max(13, floorSizeRef.current * 0.82);
+    return {
+      target: new THREE.Vector3(0, floorY + 0.8, 0),
+      pos: new THREE.Vector3(dist, floorY + dist * 0.85, dist),
+    };
+  };
+
+  // Fly to specific clicked agent desk
   useEffect(() => {
     if (focusNonce === 0 || !focusTargetRef.current) return;
     const [x, y, z] = focusTargetRef.current;
@@ -36,11 +69,22 @@ export const CameraRig: React.FC<CameraRigProps> = ({
     desiredPos.current = new THREE.Vector3(x + 7.5, y + 7.2, z + 7.5);
   }, [focusNonce]);
 
+  // Glide to focused floor or building overview
+  useEffect(() => {
+    if (floorFocusNonce === 0) return;
+    const idx = focusedFloorRef.current;
+    const pose = idx === null ? computeOverviewPose() : computeFloorPose(idx);
+    desiredTarget.current = pose.target;
+    desiredPos.current = pose.pos;
+  }, [floorFocusNonce]);
+
+  // Reset camera button
   useEffect(() => {
     if (resetNonce === 0) return;
-    const dist = defaultDistRef.current;
-    desiredTarget.current = new THREE.Vector3(0, 0.4, 0);
-    desiredPos.current = new THREE.Vector3(dist, dist * 0.9, dist);
+    const idx = focusedFloorRef.current;
+    const pose = idx === null ? computeOverviewPose() : computeFloorPose(idx);
+    desiredTarget.current = pose.target;
+    desiredPos.current = pose.pos;
   }, [resetNonce]);
 
   useFrame((_, delta) => {
@@ -59,6 +103,8 @@ export const CameraRig: React.FC<CameraRigProps> = ({
     }
   });
 
+  const maxBuildingSpan = Math.max(floorSize, visibleFloorCount * FLOOR_HEIGHT);
+
   return (
     <OrbitControls
       ref={controlsRef}
@@ -66,11 +112,10 @@ export const CameraRig: React.FC<CameraRigProps> = ({
       enableDamping
       dampingFactor={0.08}
       minDistance={5}
-      maxDistance={Math.max(38, floorSize * 2.2)}
-      minPolarAngle={0.35}
-      maxPolarAngle={Math.PI / 2.25}
+      maxDistance={Math.max(42, maxBuildingSpan * 2.4)}
+      minPolarAngle={0.32}
+      maxPolarAngle={Math.PI / 2.22}
       onStart={() => {
-        // Yield control immediately when user manually drags
         desiredTarget.current = null;
         desiredPos.current = null;
       }}

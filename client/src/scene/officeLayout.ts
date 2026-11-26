@@ -1,8 +1,11 @@
-import type { AgentNode, TeamCluster } from '@office/shared';
+import type { AgentNode, FloorConfig, TeamCluster } from '@office/shared';
+
+export const FLOOR_HEIGHT = 5.4;
 
 export interface DeskPlacement {
   agentId: string;
   clusterId: string;
+  floorId: string;
   isLead: boolean;
   position: [number, number, number];
   rotationY: number;
@@ -10,6 +13,7 @@ export interface DeskPlacement {
 
 export interface ClusterPlacement {
   rootId: string;
+  floorId: string;
   projectName: string;
   title: string;
   center: [number, number, number];
@@ -20,9 +24,19 @@ export interface ClusterPlacement {
   agentIds: string[];
 }
 
+export interface FloorLayout {
+  floorId: string;
+  index: number;
+  name: string;
+  y: number;
+  clusters: ClusterPlacement[];
+  coffeeCorner: [number, number, number];
+}
+
 export interface OfficeLayout {
   floorWidth: number;
   floorDepth: number;
+  floors: FloorLayout[];
   clusters: ClusterPlacement[];
   desks: Record<string, DeskPlacement>;
   coffeeCorner: [number, number, number];
@@ -51,28 +65,32 @@ function measureCluster(memberCount: number): {
   return { rugWidth, rugDepth, subCols };
 }
 
-export function computeOfficeLayout(
-  clusters: TeamCluster[],
-  agents: Record<string, AgentNode>,
-): OfficeLayout {
-  if (clusters.length === 0) {
+function measureFloorClusters(floorClusters: TeamCluster[]) {
+  if (floorClusters.length === 0) {
     return {
-      floorWidth: MIN_FLOOR_SIZE,
-      floorDepth: MIN_FLOOR_SIZE,
-      clusters: [],
-      desks: {},
-      coffeeCorner: [MIN_FLOOR_SIZE / 2 - 2.4, 0, -MIN_FLOOR_SIZE / 2 + 2.2],
+      measured: [] as Array<{
+        cluster: TeamCluster;
+        rugWidth: number;
+        rugDepth: number;
+        subCols: number;
+      }>,
+      gridCols: 0,
+      colWidths: [] as number[],
+      rowDepths: [] as number[],
+      totalGridW: 0,
+      totalGridD: 0,
+      neededWidth: MIN_FLOOR_SIZE,
+      neededDepth: MIN_FLOOR_SIZE,
     };
   }
 
-  const measured = clusters.map((c) => ({
+  const measured = floorClusters.map((c) => ({
     cluster: c,
     ...measureCluster(c.agentIds.length),
   }));
 
-  const gridCols = Math.ceil(Math.sqrt(clusters.length));
-  const gridRows = Math.ceil(clusters.length / gridCols);
-
+  const gridCols = Math.ceil(Math.sqrt(floorClusters.length));
+  const gridRows = Math.ceil(floorClusters.length / gridCols);
   const colWidths = new Array<number>(gridCols).fill(0);
   const rowDepths = new Array<number>(gridRows).fill(0);
 
@@ -88,87 +106,164 @@ export function computeOfficeLayout(
   const totalGridD =
     rowDepths.reduce((a, b) => a + b, 0) + Math.max(0, gridRows - 1) * CLUSTER_GAP;
 
-  const floorWidth = Math.max(MIN_FLOOR_SIZE, totalGridW + FLOOR_MARGIN * 2);
-  const floorDepth = Math.max(MIN_FLOOR_SIZE, totalGridD + FLOOR_MARGIN * 2);
+  return {
+    measured,
+    gridCols,
+    colWidths,
+    rowDepths,
+    totalGridW,
+    totalGridD,
+    neededWidth: Math.max(MIN_FLOOR_SIZE, totalGridW + FLOOR_MARGIN * 2),
+    neededDepth: Math.max(MIN_FLOOR_SIZE, totalGridD + FLOOR_MARGIN * 2),
+  };
+}
 
-  const colCenters: number[] = [];
-  let cursorX = -totalGridW / 2;
-  for (let c = 0; c < gridCols; c++) {
-    colCenters.push(cursorX + colWidths[c] / 2);
-    cursorX += colWidths[c] + CLUSTER_GAP;
+export function computeOfficeLayout(
+  clusters: TeamCluster[],
+  agents: Record<string, AgentNode>,
+  floorsInput?: FloorConfig[],
+): OfficeLayout {
+  const floors: FloorConfig[] =
+    floorsInput && floorsInput.length > 0
+      ? [...floorsInput].sort((a, b) => a.index - b.index)
+      : [{ id: 'floor-1', index: 1, name: 'Lantai 1' }];
+
+  const validFloorIds = new Set(floors.map((f) => f.id));
+  const defaultFloorId = floors[0].id;
+
+  const clustersByFloor = new Map<string, TeamCluster[]>();
+  for (const f of floors) {
+    clustersByFloor.set(f.id, []);
+  }
+  for (const c of clusters) {
+    const targetFloorId = c.floorId && validFloorIds.has(c.floorId) ? c.floorId : defaultFloorId;
+    clustersByFloor.get(targetFloorId)!.push(c);
   }
 
-  const rowCenters: number[] = [];
-  let cursorZ = -totalGridD / 2;
-  for (let r = 0; r < gridRows; r++) {
-    rowCenters.push(cursorZ + rowDepths[r] / 2);
-    cursorZ += rowDepths[r] + CLUSTER_GAP;
-  }
-
-  const clusterPlacements: ClusterPlacement[] = [];
-  const desks: Record<string, DeskPlacement> = {};
-
-  measured.forEach((m, idx) => {
-    const col = idx % gridCols;
-    const row = Math.floor(idx / gridCols);
-    const cx = colCenters[col];
-    const cz = rowCenters[row];
-    const { cluster, rugWidth, rugDepth, subCols } = m;
-
-    const effectiveLeadId = cluster.agentIds.includes(cluster.leadAgentId)
-      ? cluster.leadAgentId
-      : cluster.agentIds[0];
-    if (!effectiveLeadId) return;
-
-    clusterPlacements.push({
-      rootId: cluster.rootId,
-      projectName: cluster.projectName,
-      title: cluster.title,
-      center: [cx, 0, cz],
-      rugWidth,
-      rugDepth,
-      rugColor: RUG_PALETTE[idx % RUG_PALETTE.length],
-      leadAgentId: effectiveLeadId,
-      agentIds: cluster.agentIds,
-    });
-
-    const subIds = cluster.agentIds.filter((id) => id !== effectiveLeadId);
-    const hasSubs = subIds.length > 0;
-    const leadZ = hasSubs ? cz - rugDepth / 2 + 1.85 : cz;
-    const leadAgent = agents[effectiveLeadId];
-
-    desks[effectiveLeadId] = {
-      agentId: effectiveLeadId,
-      clusterId: cluster.rootId,
-      isLead: leadAgent ? !leadAgent.isSubagent : true,
-      position: [cx, 0, leadZ],
-      rotationY: 0,
-    };
-
-    subIds.forEach((subId, subIdx) => {
-      const sCol = subIdx % subCols;
-      const sRow = Math.floor(subIdx / subCols);
-      const itemsInRow = Math.min(subCols, subIds.length - sRow * subCols);
-      const rowWidth = (itemsInRow - 1) * DESK_SPACING_X;
-      const x = cx - rowWidth / 2 + sCol * DESK_SPACING_X;
-      const z = leadZ + (sRow + 1) * DESK_SPACING_Z;
-
-      const agent = agents[subId];
-      desks[subId] = {
-        agentId: subId,
-        clusterId: cluster.rootId,
-        isLead: agent ? !agent.isSubagent : false,
-        position: [x, 0, z],
-        rotationY: Math.PI * 0.04 * (sCol % 2 === 0 ? 1 : -1),
-      };
-    });
+  // Measure every floor so the entire stacked building shares one cohesive footprint
+  let floorWidth = MIN_FLOOR_SIZE;
+  let floorDepth = MIN_FLOOR_SIZE;
+  const floorMetrics = floors.map((floor) => {
+    const list = clustersByFloor.get(floor.id) ?? [];
+    const metrics = measureFloorClusters(list);
+    floorWidth = Math.max(floorWidth, metrics.neededWidth);
+    floorDepth = Math.max(floorDepth, metrics.neededDepth);
+    return { floor, metrics };
   });
+
+  const allClusterPlacements: ClusterPlacement[] = [];
+  const floorLayouts: FloorLayout[] = [];
+  const desks: Record<string, DeskPlacement> = {};
+  let globalPaletteIdx = 0;
+
+  for (const { floor, metrics } of floorMetrics) {
+    const y = (floor.index - 1) * FLOOR_HEIGHT;
+    const floorClusterPlacements: ClusterPlacement[] = [];
+
+    if (metrics.measured.length > 0) {
+      const colCenters: number[] = [];
+      let cursorX = -metrics.totalGridW / 2;
+      for (let c = 0; c < metrics.gridCols; c++) {
+        colCenters.push(cursorX + metrics.colWidths[c] / 2);
+        cursorX += metrics.colWidths[c] + CLUSTER_GAP;
+      }
+
+      const rowCenters: number[] = [];
+      let cursorZ = -metrics.totalGridD / 2;
+      for (let r = 0; r < metrics.rowDepths.length; r++) {
+        rowCenters.push(cursorZ + metrics.rowDepths[r] / 2);
+        cursorZ += metrics.rowDepths[r] + CLUSTER_GAP;
+      }
+
+      metrics.measured.forEach((m, idx) => {
+        const col = idx % metrics.gridCols;
+        const row = Math.floor(idx / metrics.gridCols);
+        const cx = colCenters[col];
+        const cz = rowCenters[row];
+        const { cluster, rugWidth, rugDepth, subCols } = m;
+
+        const effectiveLeadId = cluster.agentIds.includes(cluster.leadAgentId)
+          ? cluster.leadAgentId
+          : cluster.agentIds[0];
+        if (!effectiveLeadId) return;
+
+        const placement: ClusterPlacement = {
+          rootId: cluster.rootId,
+          floorId: floor.id,
+          projectName: cluster.projectName,
+          title: cluster.title,
+          center: [cx, y, cz],
+          rugWidth,
+          rugDepth,
+          rugColor: RUG_PALETTE[globalPaletteIdx % RUG_PALETTE.length],
+          leadAgentId: effectiveLeadId,
+          agentIds: cluster.agentIds,
+        };
+        globalPaletteIdx += 1;
+        floorClusterPlacements.push(placement);
+        allClusterPlacements.push(placement);
+
+        const subIds = cluster.agentIds.filter((id) => id !== effectiveLeadId);
+        const hasSubs = subIds.length > 0;
+        const leadZ = hasSubs ? cz - rugDepth / 2 + 1.85 : cz;
+        const leadAgent = agents[effectiveLeadId];
+
+        desks[effectiveLeadId] = {
+          agentId: effectiveLeadId,
+          clusterId: cluster.rootId,
+          floorId: floor.id,
+          isLead: leadAgent ? !leadAgent.isSubagent : true,
+          position: [cx, y, leadZ],
+          rotationY: 0,
+        };
+
+        subIds.forEach((subId, subIdx) => {
+          const sCol = subIdx % subCols;
+          const sRow = Math.floor(subIdx / subCols);
+          const itemsInRow = Math.min(subCols, subIds.length - sRow * subCols);
+          const rowWidth = (itemsInRow - 1) * DESK_SPACING_X;
+          const x = cx - rowWidth / 2 + sCol * DESK_SPACING_X;
+          const z = leadZ + (sRow + 1) * DESK_SPACING_Z;
+
+          const agent = agents[subId];
+          desks[subId] = {
+            agentId: subId,
+            clusterId: cluster.rootId,
+            floorId: floor.id,
+            isLead: agent ? !agent.isSubagent : false,
+            position: [x, y, z],
+            rotationY: Math.PI * 0.04 * (sCol % 2 === 0 ? 1 : -1),
+          };
+        });
+      });
+    }
+
+    const coffeeCorner: [number, number, number] = [
+      floorWidth / 2 - 2.4,
+      y,
+      -floorDepth / 2 + 2.1,
+    ];
+
+    floorLayouts.push({
+      floorId: floor.id,
+      index: floor.index,
+      name: floor.name,
+      y,
+      clusters: floorClusterPlacements,
+      coffeeCorner,
+    });
+  }
 
   return {
     floorWidth,
     floorDepth,
-    clusters: clusterPlacements,
+    floors: floorLayouts,
+    clusters: allClusterPlacements,
     desks,
-    coffeeCorner: [floorWidth / 2 - 2.4, 0, -floorDepth / 2 + 2.1],
+    coffeeCorner: floorLayouts[0]?.coffeeCorner ?? [
+      floorWidth / 2 - 2.4,
+      0,
+      -floorDepth / 2 + 2.1,
+    ],
   };
 }

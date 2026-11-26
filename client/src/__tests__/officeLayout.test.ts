@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentNode, TeamCluster } from '@office/shared';
-import { computeOfficeLayout } from '../scene/officeLayout';
+import type { AgentNode, FloorConfig, TeamCluster } from '@office/shared';
+import { FLOOR_HEIGHT, computeOfficeLayout } from '../scene/officeLayout';
 
 function makeAgent(id: string, parentId: string | null, rootId: string): AgentNode {
   return {
@@ -44,6 +44,7 @@ describe('computeOfficeLayout', () => {
         title: `Task ${c}`,
         leadAgentId: leadId,
         agentIds: [leadId, ...subIds],
+        floorId: 'floor-1',
         lastUpdatedAt: Date.now(),
       });
     }
@@ -81,6 +82,7 @@ describe('computeOfficeLayout', () => {
         title: 'Main',
         leadAgentId: leadId,
         agentIds: [leadId, sub1, sub2],
+        floorId: 'floor-1',
         lastUpdatedAt: Date.now(),
       },
     ];
@@ -111,6 +113,7 @@ describe('computeOfficeLayout', () => {
         title: 'Main',
         leadAgentId: 'missing-lead',
         agentIds: [sub1],
+        floorId: 'floor-1',
         lastUpdatedAt: Date.now(),
       },
     ];
@@ -118,5 +121,44 @@ describe('computeOfficeLayout', () => {
     const layout = computeOfficeLayout(clusters, agents);
     expect(layout.desks['missing-lead']).toBeUndefined();
     expect(layout.desks[sub1]).toBeDefined();
+  });
+
+  it('stacks teams vertically across multiple floors with unified footprint and exact Y heights', () => {
+    const floors: FloorConfig[] = [
+      { id: 'floor-1', index: 1, name: 'Lantai 1' },
+      { id: 'floor-2', index: 2, name: 'Lantai 2' },
+    ];
+    const agents: Record<string, AgentNode> = {
+      'lead-a': makeAgent('lead-a', null, 'lead-a'),
+      'lead-b': makeAgent('lead-b', null, 'lead-b'),
+    };
+    const clusters: TeamCluster[] = [
+      {
+        rootId: 'lead-a',
+        projectName: 'Web',
+        title: 'Web Team',
+        leadAgentId: 'lead-a',
+        agentIds: ['lead-a'],
+        floorId: 'floor-1',
+        lastUpdatedAt: Date.now(),
+      },
+      {
+        rootId: 'lead-b',
+        projectName: 'Mobile',
+        title: 'Mobile Team',
+        leadAgentId: 'lead-b',
+        agentIds: ['lead-b'],
+        floorId: 'floor-2',
+        lastUpdatedAt: Date.now(),
+      },
+    ];
+
+    const layout = computeOfficeLayout(clusters, agents, floors);
+    expect(layout.floors).toHaveLength(2);
+    expect(layout.floors[0].y).toBe(0);
+    expect(layout.floors[1].y).toBeCloseTo(FLOOR_HEIGHT);
+    expect(layout.desks['lead-a'].position[1]).toBe(0);
+    expect(layout.desks['lead-b'].position[1]).toBeCloseTo(FLOOR_HEIGHT);
+    expect(layout.desks['lead-b'].floorId).toBe('floor-2');
   });
 });

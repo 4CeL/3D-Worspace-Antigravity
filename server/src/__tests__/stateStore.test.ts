@@ -334,14 +334,47 @@ describe('StateStore', () => {
     expect(restored.agents['lead-1']).toMatchObject({ displayName: 'Haloo', hasCustomAlias: false });
     expect(restored.agents['sub-1']).toMatchObject({ displayName: 'Codebase Researcher', hasCustomAlias: false });
   });
+
+  it('supports adding, renaming, assigning teams to floors, and migrating teams back to Floor 1 when a floor is deleted', () => {
+    const store = new StateStore();
+    const t0 = 1_700_000_000_000;
+
+    store.applyHookEvent({ hookEventName: 'SessionStart', conversationId: 'team-a', workspacePaths: ['D:\\A'] }, t0);
+    store.applyHookEvent({ hookEventName: 'SessionStart', conversationId: 'team-b', workspacePaths: ['D:\\B'] }, t0 + 10);
+
+    const initial = store.getSnapshot({ now: t0 + 20 });
+    expect(initial.floors).toHaveLength(1);
+    expect(initial.clusters.every((c) => c.floorId === 'floor-1')).toBe(true);
+
+    const floor2 = store.addFloor('Mobile Lab');
+    expect(floor2).toMatchObject({ index: 2, name: 'Mobile Lab' });
+    expect(store.renameFloor(floor2.id, 'Riset & Mobile')).toBe(true);
+    expect(store.setTeamFloor('team-b', floor2.id)).toBe(true);
+
+    const moved = store.getSnapshot({ now: t0 + 30 });
+    expect(moved.floors).toHaveLength(2);
+    expect(moved.floors[1].name).toBe('Riset & Mobile');
+    expect(moved.clusters.find((c) => c.rootId === 'team-b')?.floorId).toBe(floor2.id);
+
+    // Floor 1 cannot be deleted
+    expect(store.deleteFloor('floor-1')).toBe(false);
+
+    // Deleting Floor 2 safely moves team-b back to Floor 1
+    expect(store.deleteFloor(floor2.id)).toBe(true);
+    const afterDelete = store.getSnapshot({ now: t0 + 40 });
+    expect(afterDelete.floors).toHaveLength(1);
+    expect(afterDelete.clusters.find((c) => c.rootId === 'team-b')?.floorId).toBe('floor-1');
+  });
 });
 
 describe('DemoSimulator', () => {
-  it('produces a valid 2-project OfficeSnapshot with main + subagent clusters and advances on tick', () => {
+  it('produces a valid 2-floor, 2-project OfficeSnapshot with main + subagent clusters and advances on tick', () => {
     const sim = new DemoSimulator();
     const snap1 = sim.getSnapshot();
     expect(snap1.demoMode).toBe(true);
+    expect(snap1.floors).toHaveLength(2);
     expect(snap1.clusters).toHaveLength(2);
+    expect(snap1.clusters[0].floorId).not.toBe(snap1.clusters[1].floorId);
     expect(Object.keys(snap1.agents).length).toBeGreaterThanOrEqual(4);
 
     const snap2 = sim.step();

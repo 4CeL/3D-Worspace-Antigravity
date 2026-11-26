@@ -21,25 +21,25 @@ export const TeamClusterGroup: React.FC<TeamClusterGroupProps> = ({
   showLabels,
   onSelectAgent,
 }) => {
-  const [cx, , cz] = cluster.center;
+  const [cx, cy, cz] = cluster.center;
 
   return (
     <group>
       {/* Soft pastel team rug */}
-      <mesh position={[cx, 0.015, cz]} receiveShadow>
+      <mesh position={[cx, cy + 0.015, cz]} receiveShadow>
         <boxGeometry args={[cluster.rugWidth, 0.03, cluster.rugDepth]} />
         <meshStandardMaterial color={cluster.rugColor} roughness={0.95} />
       </mesh>
 
       {/* Subtle rug border accent */}
-      <mesh position={[cx, 0.012, cz]}>
+      <mesh position={[cx, cy + 0.012, cz]}>
         <boxGeometry args={[cluster.rugWidth + 0.14, 0.022, cluster.rugDepth + 0.14]} />
         <meshStandardMaterial color="#d6c8b6" roughness={0.9} />
       </mesh>
 
       {/* Project Nameplate on front edge of rug */}
       <Html
-        position={[cx, 0.12, cz + cluster.rugDepth / 2 + 0.35]}
+        position={[cx, cy + 0.12, cz + cluster.rugDepth / 2 + 0.35]}
         center
         distanceFactor={16}
         zIndexRange={[5, 0]}

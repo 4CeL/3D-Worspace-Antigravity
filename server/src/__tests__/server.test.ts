@@ -229,4 +229,72 @@ describe('createOfficeServer', () => {
       await office2.close();
     }
   });
+
+  it('adds floors and moves teams via HTTP API and persists building config across server restarts', async () => {
+    const brainDir = makeTempDir();
+    const buildingFilePath = path.join(makeTempDir(), 'building-config.json');
+    const office1 = await createOfficeServer({
+      port: 0,
+      host: '127.0.0.1',
+      brainDir,
+      buildingFilePath,
+    });
+
+    let floor2Id = '';
+    try {
+      await fetch(`http://127.0.0.1:${office1.port}/api/hook-event`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hookEventName: 'SessionStart',
+          conversationId: 'team-floor-test',
+          workspacePaths: ['D:\\Projects\\FloorApp'],
+        }),
+      });
+
+      const addRes = await fetch(`http://127.0.0.1:${office1.port}/api/floors`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Lab AI' }),
+      });
+      expect(addRes.status).toBe(200);
+      const addBody = (await addRes.json()) as { floor: { id: string; index: number; name: string } };
+      floor2Id = addBody.floor.id;
+      expect(addBody.floor).toMatchObject({ index: 2, name: 'Lab AI' });
+
+      const moveRes = await fetch(`http://127.0.0.1:${office1.port}/api/team-floor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rootId: 'team-floor-test', floorId: floor2Id }),
+      });
+      expect(moveRes.status).toBe(200);
+    } finally {
+      await office1.close();
+    }
+
+    const office2 = await createOfficeServer({
+      port: 0,
+      host: '127.0.0.1',
+      brainDir,
+      buildingFilePath,
+    });
+    try {
+      await fetch(`http://127.0.0.1:${office2.port}/api/hook-event`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hookEventName: 'SessionStart',
+          conversationId: 'team-floor-test',
+          workspacePaths: ['D:\\Projects\\FloorApp'],
+        }),
+      });
+      const snapRes = await fetch(`http://127.0.0.1:${office2.port}/api/snapshot`);
+      const snap = await snapRes.json();
+      expect(snap.floors).toHaveLength(2);
+      expect(snap.floors[1].name).toBe('Lab AI');
+      expect(snap.clusters[0].floorId).toBe(floor2Id);
+    } finally {
+      await office2.close();
+    }
+  });
 });
