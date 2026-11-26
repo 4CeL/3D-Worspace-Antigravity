@@ -9,6 +9,7 @@ import {
   type FileAction,
   type FileTouch,
   type FloorConfig,
+  type FloorTheme,
   type HookEventPayload,
   type OfficeSnapshot,
   type RecencyWindow,
@@ -16,7 +17,11 @@ import {
 } from '@office/shared';
 import {
   MAX_FLOORS,
+  MAX_TEAM_FLOORS,
   createDefaultBuildingConfig,
+  defaultThemeForFloorIndex,
+  isSafeObjectKey,
+  isValidFloorTheme,
   normalizeBuildingConfig,
 } from './buildingStore.js';
 import type { ParsedTranscriptDelta } from './transcriptParser.js';
@@ -142,7 +147,7 @@ export class StateStore {
     }
   }
 
-  addFloor(name?: string): FloorConfig | null {
+  addFloor(name?: string, theme?: FloorTheme): FloorConfig | null {
     if (this.floors.length >= MAX_FLOORS) return null;
     const nextIndex = this.floors.length + 1;
     let id = `floor-${nextIndex}`;
@@ -151,7 +156,10 @@ export class StateStore {
     }
     const label =
       typeof name === 'string' && name.trim() ? name.trim().slice(0, 40) : `Lantai ${nextIndex}`;
-    const floor: FloorConfig = { id, index: nextIndex, name: label };
+    const resolvedTheme: FloorTheme = isValidFloorTheme(theme)
+      ? theme
+      : defaultThemeForFloorIndex(nextIndex);
+    const floor: FloorConfig = { id, index: nextIndex, name: label, theme: resolvedTheme };
     this.floors.push(floor);
     this.emitChange();
     return floor;
@@ -162,6 +170,14 @@ export class StateStore {
     const trimmed = typeof name === 'string' ? name.trim().slice(0, 40) : '';
     if (!target || !trimmed) return false;
     target.name = trimmed;
+    this.emitChange();
+    return true;
+  }
+
+  setFloorTheme(floorId: string, theme: FloorTheme): boolean {
+    const target = this.floors.find((f) => f.id === floorId);
+    if (!target || !isValidFloorTheme(theme)) return false;
+    target.theme = theme;
     this.emitChange();
     return true;
   }
@@ -184,8 +200,12 @@ export class StateStore {
   }
 
   setTeamFloor(rootId: string, floorId: string): boolean {
-    const trimmedRoot = rootId.trim();
-    if (!trimmedRoot || !this.floors.some((f) => f.id === floorId)) return false;
+    const trimmedRoot = typeof rootId === 'string' ? rootId.trim() : '';
+    if (!isSafeObjectKey(trimmedRoot) || !this.floors.some((f) => f.id === floorId)) return false;
+    if (!this.teamFloors.has(trimmedRoot) && this.teamFloors.size >= MAX_TEAM_FLOORS) {
+      const oldestKey = this.teamFloors.keys().next().value;
+      if (oldestKey) this.teamFloors.delete(oldestKey);
+    }
     this.teamFloors.set(trimmedRoot, floorId);
     this.emitChange();
     return true;
@@ -194,7 +214,9 @@ export class StateStore {
   getBuildingConfig(): BuildingConfig {
     const teamFloors: Record<string, string> = {};
     for (const [k, v] of this.teamFloors.entries()) {
-      teamFloors[k] = v;
+      if (isSafeObjectKey(k)) {
+        teamFloors[k] = v;
+      }
     }
     return {
       floors: this.floors.map((f) => ({ ...f })),

@@ -1,6 +1,26 @@
-import type { AgentNode, FloorConfig, TeamCluster } from '@office/shared';
+import type { AgentNode, FloorConfig, FloorTheme, TeamCluster } from '@office/shared';
 
 export const FLOOR_HEIGHT = 5.4;
+export const FLOOR_THEME_CYCLE: readonly FloorTheme[] = [
+  'engineering',
+  'lobby',
+  'creative',
+  'pantry',
+];
+
+export function resolveFloorTheme(floor: Pick<FloorConfig, 'index' | 'theme'>): FloorTheme {
+  if (
+    typeof floor.theme === 'string' &&
+    (FLOOR_THEME_CYCLE as readonly string[]).includes(floor.theme)
+  ) {
+    return floor.theme;
+  }
+  const safeIndex = Number.isFinite(floor.index) ? Math.floor(floor.index) : 1;
+  const idx =
+    (((safeIndex - 1) % FLOOR_THEME_CYCLE.length) + FLOOR_THEME_CYCLE.length) %
+    FLOOR_THEME_CYCLE.length;
+  return FLOOR_THEME_CYCLE[idx];
+}
 
 export interface DeskPlacement {
   agentId: string;
@@ -28,6 +48,7 @@ export interface FloorLayout {
   floorId: string;
   index: number;
   name: string;
+  theme: FloorTheme;
   y: number;
   clusters: ClusterPlacement[];
   coffeeCorner: [number, number, number];
@@ -46,8 +67,8 @@ const RUG_PALETTE = ['#dce8df', '#e4e1f2', '#f3e5d2', '#dae9f5', '#f2e0e4'];
 const DESK_SPACING_X = 3.0;
 const DESK_SPACING_Z = 3.0;
 const CLUSTER_GAP = 2.6;
-const FLOOR_MARGIN = 5.5;
-const MIN_FLOOR_SIZE = 16;
+const FLOOR_MARGIN = 6.2;
+const MIN_FLOOR_SIZE = 17;
 
 function measureCluster(memberCount: number): {
   rugWidth: number;
@@ -248,6 +269,7 @@ export function computeOfficeLayout(
       floorId: floor.id,
       index: floor.index,
       name: floor.name,
+      theme: resolveFloorTheme(floor),
       y,
       clusters: floorClusterPlacements,
       coffeeCorner,

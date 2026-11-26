@@ -4,10 +4,17 @@ import type {
   AgentStatus,
   FileAction,
   FloorConfig,
+  FloorTheme,
   OfficeSnapshot,
   TeamCluster,
 } from '@office/shared';
-import { MAX_FLOORS } from './buildingStore.js';
+import {
+  MAX_FLOORS,
+  MAX_TEAM_FLOORS,
+  defaultThemeForFloorIndex,
+  isSafeObjectKey,
+  isValidFloorTheme,
+} from './buildingStore.js';
 
 interface DemoPhase {
   leadStatus: AgentStatus;
@@ -75,8 +82,8 @@ export class DemoSimulator {
   private timer: NodeJS.Timeout | null = null;
   private readonly customAliases = new Map<string, string>();
   private readonly floors: FloorConfig[] = [
-    { id: 'demo-floor-1', index: 1, name: 'Core Office' },
-    { id: 'demo-floor-2', index: 2, name: 'Mobile Lab' },
+    { id: 'demo-floor-1', index: 1, name: 'Core Office', theme: 'engineering' },
+    { id: 'demo-floor-2', index: 2, name: 'Mobile Lab', theme: 'creative' },
   ];
   private readonly teamFloors = new Map<string, string>([
     ['demo-lead-1', 'demo-floor-1'],
@@ -88,7 +95,7 @@ export class DemoSimulator {
     this.snapshot = this.buildSnapshot(Date.now());
   }
 
-  addFloor(name?: string): FloorConfig | null {
+  addFloor(name?: string, theme?: FloorTheme): FloorConfig | null {
     if (this.floors.length >= MAX_FLOORS) return null;
     const nextIndex = this.floors.length + 1;
     let id = `demo-floor-${nextIndex}`;
@@ -97,7 +104,10 @@ export class DemoSimulator {
     }
     const label =
       typeof name === 'string' && name.trim() ? name.trim().slice(0, 40) : `Lantai ${nextIndex}`;
-    const floor: FloorConfig = { id, index: nextIndex, name: label };
+    const resolvedTheme: FloorTheme = isValidFloorTheme(theme)
+      ? theme
+      : defaultThemeForFloorIndex(nextIndex);
+    const floor: FloorConfig = { id, index: nextIndex, name: label, theme: resolvedTheme };
     this.floors.push(floor);
     this.snapshot = this.buildSnapshot(Date.now());
     return floor;
@@ -108,6 +118,14 @@ export class DemoSimulator {
     const trimmed = typeof name === 'string' ? name.trim().slice(0, 40) : '';
     if (!target || !trimmed) return false;
     target.name = trimmed;
+    this.snapshot = this.buildSnapshot(Date.now());
+    return true;
+  }
+
+  setFloorTheme(floorId: string, theme: FloorTheme): boolean {
+    const target = this.floors.find((f) => f.id === floorId);
+    if (!target || !isValidFloorTheme(theme)) return false;
+    target.theme = theme;
     this.snapshot = this.buildSnapshot(Date.now());
     return true;
   }
@@ -128,8 +146,13 @@ export class DemoSimulator {
   }
 
   setTeamFloor(rootId: string, floorId: string): boolean {
-    if (!this.floors.some((f) => f.id === floorId)) return false;
-    this.teamFloors.set(rootId, floorId);
+    const trimmedRoot = typeof rootId === 'string' ? rootId.trim() : '';
+    if (!isSafeObjectKey(trimmedRoot) || !this.floors.some((f) => f.id === floorId)) return false;
+    if (!this.teamFloors.has(trimmedRoot) && this.teamFloors.size >= MAX_TEAM_FLOORS) {
+      const oldestKey = this.teamFloors.keys().next().value;
+      if (oldestKey) this.teamFloors.delete(oldestKey);
+    }
+    this.teamFloors.set(trimmedRoot, floorId);
     this.snapshot = this.buildSnapshot(Date.now());
     return true;
   }

@@ -252,6 +252,72 @@ describe('FloorElevator', () => {
     fireEvent.click(screen.getByRole('button', { name: /Hapus Lantai 2/i }));
     expect(onDeleteFloor).toHaveBeenCalledWith('floor-2');
   });
+
+  it('renders per-floor theme selectors and calls onChangeFloorTheme when changed', () => {
+    const onChangeFloorTheme = vi.fn();
+
+    render(
+      <FloorElevator
+        floors={[
+          { id: 'floor-1', index: 1, name: 'Core Office', theme: 'engineering' },
+          { id: 'floor-2', index: 2, name: 'Lounge Area' },
+        ]}
+        focusedFloorIndex={1}
+        floorStats={{
+          'floor-1': { active: 1, total: 2 },
+          'floor-2': { active: 0, total: 1 },
+        }}
+        onSelectFloor={vi.fn()}
+        onAddFloor={vi.fn()}
+        onRenameFloor={vi.fn()}
+        onDeleteFloor={vi.fn()}
+        onChangeFloorTheme={onChangeFloorTheme}
+      />,
+    );
+
+    const floor1Theme = screen.getByLabelText(/Tema Lantai 1/i) as HTMLSelectElement;
+    const floor2Theme = screen.getByLabelText(/Tema Lantai 2/i) as HTMLSelectElement;
+
+    expect(floor1Theme.value).toBe('engineering');
+    // Fallback cycle assigns 'lobby' to Floor 2 when theme is omitted
+    expect(floor2Theme.value).toBe('lobby');
+
+    fireEvent.change(floor2Theme, { target: { value: 'pantry' } });
+    expect(onChangeFloorTheme).toHaveBeenCalledWith('floor-2', 'pantry');
+
+    fireEvent.change(floor1Theme, { target: { value: 'creative' } });
+    expect(onChangeFloorTheme).toHaveBeenCalledWith('floor-1', 'creative');
+  });
+
+  it('handles omitted onChangeFloorTheme and undefined floor.theme without throwing or selecting floor', () => {
+    const onSelectFloor = vi.fn();
+
+    render(
+      <FloorElevator
+        floors={[
+          { id: 'floor-1', index: 1, name: 'Core Office' },
+          { id: 'floor-2', index: 2, name: 'Second Floor' },
+        ]}
+        focusedFloorIndex={null}
+        floorStats={{}}
+        onSelectFloor={onSelectFloor}
+        onAddFloor={vi.fn()}
+        onRenameFloor={vi.fn()}
+        onDeleteFloor={vi.fn()}
+      />,
+    );
+
+    const floor1Select = screen.getByLabelText(/Tema Lantai 1/i) as HTMLSelectElement;
+    const floor2Select = screen.getByLabelText(/Tema Lantai 2/i) as HTMLSelectElement;
+    expect(floor1Select.value).toBe('engineering');
+    expect(floor2Select.value).toBe('lobby');
+
+    expect(() => {
+      fireEvent.click(floor2Select);
+      fireEvent.change(floor2Select, { target: { value: 'creative' } });
+    }).not.toThrow();
+    expect(onSelectFloor).not.toHaveBeenCalled();
+  });
 });
 
 describe('useOfficeSocket StrictMode guard', () => {

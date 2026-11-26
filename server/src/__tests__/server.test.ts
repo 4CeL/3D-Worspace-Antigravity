@@ -297,4 +297,130 @@ describe('createOfficeServer', () => {
       await office2.close();
     }
   });
+
+  it('updates floor theme via POST /api/floors/theme, persists across restarts, and rejects invalid themes with 400', async () => {
+    const brainDir = makeTempDir();
+    const buildingFilePath = path.join(makeTempDir(), 'building-config.json');
+    const office1 = await createOfficeServer({
+      port: 0,
+      host: '127.0.0.1',
+      brainDir,
+      buildingFilePath,
+    });
+    const ws = new WebSocket(`ws://127.0.0.1:${office1.port}/ws`);
+
+    let floor2Id = '';
+    try {
+      await new Promise<void>((resolve, reject) => {
+        ws.once('open', resolve);
+        ws.once('error', reject);
+      });
+
+      // Invalid theme on POST /api/floors -> 400
+      const badAddRes = await fetch(`http://127.0.0.1:${office1.port}/api/floors`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Bad Theme Floor', theme: 'dungeon' }),
+      });
+      expect(badAddRes.status).toBe(400);
+
+      // Valid theme on POST /api/floors -> 200
+      const addRes = await fetch(`http://127.0.0.1:${office1.port}/api/floors`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Creative Studio', theme: 'creative' }),
+      });
+      expect(addRes.status).toBe(200);
+      const addBody = (await addRes.json()) as {
+        floor: { id: string; index: number; name: string; theme?: string };
+      };
+      floor2Id = addBody.floor.id;
+      expect(addBody.floor).toMatchObject({ index: 2, name: 'Creative Studio', theme: 'creative' });
+
+      // Invalid themes / floorIds on POST /api/floors/theme -> 400
+      const badThemeRes = await fetch(`http://127.0.0.1:${office1.port}/api/floors/theme`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ floorId: 'floor-1', theme: 'spaceship' }),
+      });
+      expect(badThemeRes.status).toBe(400);
+
+      const missingFloorRes = await fetch(`http://127.0.0.1:${office1.port}/api/floors/theme`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ floorId: 'floor-999', theme: 'lobby' }),
+      });
+      expect(missingFloorRes.status).toBe(400);
+
+      // Valid POST /api/floors/theme -> 200 and broadcasts WS snapshot
+      const themeSnapPromise = waitForMessage(
+        ws,
+        (m) =>
+          m.type === 'snapshot' &&
+          m.payload.floors.find((f) => f.id === 'floor-1')?.theme === 'pantry',
+      );
+      const themeRes = await fetch(`http://127.0.0.1:${office1.port}/api/floors/theme`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ floorId: 'floor-1', theme: 'pantry' }),
+      });
+      expect(themeRes.status).toBe(200);
+      expect(await themeRes.json()).toEqual({ ok: true });
+
+      const wsMsg = await themeSnapPromise;
+      expect(wsMsg.type).toBe('snapshot');
+    } finally {
+      ws.close();
+      await office1.close();
+    }
+
+    // Restart server -> themes persist
+    const office2 = await createOfficeServer({
+      port: 0,
+      host: '127.0.0.1',
+      brainDir,
+      buildingFilePath,
+    });
+    try {
+      const snapRes = await fetch(`http://127.0.0.1:${office2.port}/api/snapshot`);
+      const snap = await snapRes.json();
+      expect(snap.floors).toHaveLength(2);
+      expect(snap.floors[0]).toMatchObject({ id: 'floor-1', theme: 'pantry' });
+      expect(snap.floors[1]).toMatchObject({ id: floor2Id, name: 'Creative Studio', theme: 'creative' });
+    } finally {
+      await office2.close();
+    }
+  });
+
+  it('blocks untrusted Origin (403), non-JSON Content-Type (415), and prototype-pollution rootId (400)', async () => {
+    const brainDir = makeTempDir();
+    const office = await createOfficeServer({ port: 0, host: '127.0.0.1', brainDir });
+    try {
+      const evilOriginRes = await fetch(`http://127.0.0.1:${office.port}/api/floors/theme`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'https://evil.example',
+        },
+        body: JSON.stringify({ floorId: 'floor-1', theme: 'pantry' }),
+      });
+      expect(evilOriginRes.status).toBe(403);
+
+      const textPlainRes = await fetch(`http://127.0.0.1:${office.port}/api/floors/theme`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ floorId: 'floor-1', theme: 'pantry' }),
+      });
+      expect(textPlainRes.status).toBe(415);
+
+      const protoRes = await fetch(`http://127.0.0.1:${office.port}/api/team-floor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rootId: '__proto__', floorId: 'floor-1' }),
+      });
+      expect(protoRes.status).toBe(400);
+    } finally {
+      await office.close();
+    }
+  });
 });

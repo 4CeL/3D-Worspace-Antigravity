@@ -18,6 +18,7 @@ export const App: React.FC = () => {
     addFloor,
     renameFloor,
     deleteFloor,
+    setFloorTheme,
     moveTeamFloor,
   } = useOfficeSocket();
 
@@ -167,6 +168,7 @@ export const App: React.FC = () => {
         onAddFloor={() => void handleAddFloor()}
         onRenameFloor={(id, name) => void renameFloor(id, name)}
         onDeleteFloor={(id) => void handleDeleteFloor(id)}
+        onChangeFloorTheme={(id, theme) => void setFloorTheme(id, theme)}
       />
 
       <InspectorDrawer

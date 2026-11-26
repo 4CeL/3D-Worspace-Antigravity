@@ -110,6 +110,7 @@ export const OfficeCanvas: React.FC<OfficeCanvasProps> = ({
                 y={floor.y}
                 floorIndex={floor.index}
                 floorName={floor.name}
+                floorTheme={floor.theme}
                 hasFloorAbove={!isTopVisible}
                 isFocused={isFocused}
                 coffeeCorner={floor.coffeeCorner}

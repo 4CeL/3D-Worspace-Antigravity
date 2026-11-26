@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentNode, FloorConfig, TeamCluster } from '@office/shared';
-import { FLOOR_HEIGHT, computeOfficeLayout } from '../scene/officeLayout';
+import { FLOOR_HEIGHT, computeOfficeLayout, resolveFloorTheme } from '../scene/officeLayout';
 
 function makeAgent(id: string, parentId: string | null, rootId: string): AgentNode {
   return {
@@ -160,5 +160,24 @@ describe('computeOfficeLayout', () => {
     expect(layout.desks['lead-a'].position[1]).toBe(0);
     expect(layout.desks['lead-b'].position[1]).toBeCloseTo(FLOOR_HEIGHT);
     expect(layout.desks['lead-b'].floorId).toBe('floor-2');
+  });
+
+  it('resolves explicit, omitted, and invalid runtime floor themes deterministically', () => {
+    expect(resolveFloorTheme({ index: 1 })).toBe('engineering');
+    expect(resolveFloorTheme({ index: 2 })).toBe('lobby');
+    expect(resolveFloorTheme({ index: 3 })).toBe('creative');
+    expect(resolveFloorTheme({ index: 4 })).toBe('pantry');
+    expect(resolveFloorTheme({ index: 5 })).toBe('engineering');
+    expect(resolveFloorTheme({ index: 2, theme: 'pantry' })).toBe('pantry');
+    expect(resolveFloorTheme({ index: 3, theme: 'invalid-runtime' as never })).toBe('creative');
+    expect(resolveFloorTheme({ index: Number.NaN })).toBe('engineering');
+
+    const floors: FloorConfig[] = [
+      { id: 'f1', index: 1, name: 'L1', theme: 'pantry' },
+      { id: 'f2', index: 2, name: 'L2' },
+      { id: 'f3', index: 3, name: 'L3', theme: 'invalid-theme' as never },
+    ];
+    const layout = computeOfficeLayout([], {}, floors);
+    expect(layout.floors.map((f) => f.theme)).toEqual(['pantry', 'lobby', 'creative']);
   });
 });

@@ -1,6 +1,8 @@
 import React, { useMemo } from 'react';
 import { Html } from '@react-three/drei';
+import type { FloorTheme } from '@office/shared';
 import { FLOOR_HEIGHT } from './officeLayout';
+import { FloorDecor } from './FloorDecor';
 
 interface OfficeRoomProps {
   floorWidth: number;
@@ -8,79 +10,12 @@ interface OfficeRoomProps {
   y?: number;
   floorIndex?: number;
   floorName?: string;
+  floorTheme?: FloorTheme;
   hasFloorAbove?: boolean;
   isFocused?: boolean;
-  coffeeCorner: [number, number, number];
+  coffeeCorner?: [number, number, number];
   onDeselect: () => void;
   onFocusFloor?: (floorIndex: number) => void;
-}
-
-function PottedPlant({
-  position,
-  scale = 1,
-}: {
-  position: [number, number, number];
-  scale?: number;
-}) {
-  return (
-    <group position={position} scale={scale}>
-      <mesh position={[0, 0.28, 0]} castShadow receiveShadow>
-        <cylinderGeometry args={[0.26, 0.2, 0.56, 12]} />
-        <meshStandardMaterial color="#c97450" roughness={0.85} />
-      </mesh>
-      <mesh position={[0, 0.56, 0]} receiveShadow>
-        <cylinderGeometry args={[0.24, 0.24, 0.05, 12]} />
-        <meshStandardMaterial color="#5c4033" roughness={1} />
-      </mesh>
-      <mesh position={[-0.12, 0.88, 0.06]} castShadow>
-        <dodecahedronGeometry args={[0.3, 0]} />
-        <meshStandardMaterial color="#4f9d69" roughness={0.75} />
-      </mesh>
-      <mesh position={[0.14, 0.96, -0.06]} castShadow>
-        <dodecahedronGeometry args={[0.27, 0]} />
-        <meshStandardMaterial color="#63b57d" roughness={0.75} />
-      </mesh>
-      <mesh position={[0, 1.18, 0]} castShadow>
-        <dodecahedronGeometry args={[0.24, 0]} />
-        <meshStandardMaterial color="#3e8255" roughness={0.75} />
-      </mesh>
-    </group>
-  );
-}
-
-function CoffeeCounter({ position }: { position: [number, number, number] }) {
-  return (
-    <group position={position}>
-      <mesh position={[-0.3, 0.015, 0.6]} receiveShadow>
-        <boxGeometry args={[3.0, 0.03, 2.2]} />
-        <meshStandardMaterial color="#efe3d2" roughness={0.95} />
-      </mesh>
-      <mesh position={[0, 0.48, 0]} castShadow receiveShadow>
-        <boxGeometry args={[2.1, 0.96, 0.85]} />
-        <meshStandardMaterial color="#8f6342" roughness={0.7} />
-      </mesh>
-      <mesh position={[0, 0.99, 0]} castShadow receiveShadow>
-        <boxGeometry args={[2.2, 0.08, 0.92]} />
-        <meshStandardMaterial color="#fff9f0" roughness={0.5} />
-      </mesh>
-      <mesh position={[-0.45, 1.28, -0.08]} castShadow>
-        <boxGeometry args={[0.52, 0.5, 0.42]} />
-        <meshStandardMaterial color="#374151" metalness={0.35} roughness={0.4} />
-      </mesh>
-      <mesh position={[-0.45, 1.16, 0.14]}>
-        <boxGeometry args={[0.36, 0.06, 0.12]} />
-        <meshStandardMaterial color="#cbd5e1" metalness={0.6} roughness={0.25} />
-      </mesh>
-      <mesh position={[0.35, 1.12, 0.1]} castShadow>
-        <cylinderGeometry args={[0.08, 0.07, 0.16, 12]} />
-        <meshStandardMaterial color="#f59e0b" roughness={0.4} />
-      </mesh>
-      <mesh position={[0.58, 1.12, -0.05]} castShadow>
-        <cylinderGeometry args={[0.08, 0.07, 0.16, 12]} />
-        <meshStandardMaterial color="#ffffff" roughness={0.4} />
-      </mesh>
-    </group>
-  );
 }
 
 function ElevatorCore({
@@ -131,9 +66,9 @@ export const OfficeRoom: React.FC<OfficeRoomProps> = ({
   y = 0,
   floorIndex = 1,
   floorName = 'Lantai 1',
+  floorTheme,
   hasFloorAbove = false,
   isFocused = false,
-  coffeeCorner,
   onDeselect,
   onFocusFloor,
 }) => {
@@ -278,38 +213,13 @@ export const OfficeRoom: React.FC<OfficeRoomProps> = ({
         </group>
       ))}
 
-      {/* Wall whiteboard on left wall */}
-      <group position={[-floorWidth / 2 + 0.05, 2.05, 0.6]} rotation={[0, Math.PI / 2, 0]}>
-        <mesh>
-          <boxGeometry args={[2.4, 1.35, 0.07]} />
-          <meshStandardMaterial color="#e5dccf" roughness={0.7} />
-        </mesh>
-        <mesh position={[0, 0, 0.04]}>
-          <planeGeometry args={[2.22, 1.18]} />
-          <meshStandardMaterial color="#ffffff" roughness={0.4} />
-        </mesh>
-        <mesh position={[-0.6, 0.2, 0.05]}>
-          <planeGeometry args={[0.3, 0.3]} />
-          <meshStandardMaterial color="#fde68a" />
-        </mesh>
-        <mesh position={[-0.18, 0.22, 0.05]}>
-          <planeGeometry args={[0.3, 0.3]} />
-          <meshStandardMaterial color="#a7f3d0" />
-        </mesh>
-        <mesh position={[0.26, -0.08, 0.05]}>
-          <planeGeometry args={[0.3, 0.3]} />
-          <meshStandardMaterial color="#bfdbfe" />
-        </mesh>
-      </group>
-
-      {/* Corner potted plants */}
-      <PottedPlant position={[-floorWidth / 2 + 1.0, 0, floorDepth / 2 - 1.1]} scale={0.95} />
-      <PottedPlant position={[floorWidth / 2 - 1.0, 0, floorDepth / 2 - 1.1]} scale={0.9} />
-
-      {/* Coffee corner (local coordinates relative to floor group y) */}
-      {floorIndex === 1 && (
-        <CoffeeCounter position={[coffeeCorner[0], 0, coffeeCorner[2]]} />
-      )}
+      {/* Theme-aware cozy isometric perimeter decor */}
+      <FloorDecor
+        floorWidth={floorWidth}
+        floorDepth={floorDepth}
+        theme={floorTheme ?? 'engineering'}
+        floorIndex={floorIndex}
+      />
 
       {/* Exterior clickable floor badge on front-right slab edge */}
       <Html

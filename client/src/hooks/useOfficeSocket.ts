@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   ClientMessage,
+  FloorTheme,
   OfficeSnapshot,
   RecencyWindow,
   ServerMessage,
@@ -27,6 +28,7 @@ export interface UseOfficeSocketResult {
   addFloor: (name?: string) => Promise<{ id: string; index: number; name: string } | null>;
   renameFloor: (floorId: string, name: string) => Promise<void>;
   deleteFloor: (floorId: string) => Promise<void>;
+  setFloorTheme: (floorId: string, theme: FloorTheme) => Promise<void>;
   moveTeamFloor: (rootId: string, floorId: string) => Promise<void>;
 }
 
@@ -110,6 +112,18 @@ export function useOfficeSocket(): UseOfficeSocketResult {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ floorId }),
+      });
+    } catch {
+      // ignore transient network errors
+    }
+  }, []);
+
+  const setFloorTheme = useCallback(async (floorId: string, theme: FloorTheme) => {
+    try {
+      await fetch('/api/floors/theme', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ floorId, theme }),
       });
     } catch {
       // ignore transient network errors
@@ -205,6 +219,7 @@ export function useOfficeSocket(): UseOfficeSocketResult {
     addFloor,
     renameFloor,
     deleteFloor,
+    setFloorTheme,
     moveTeamFloor,
   };
 }

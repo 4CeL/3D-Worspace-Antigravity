@@ -4,13 +4,14 @@ import path from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import type {
   ClientMessage,
+  FloorTheme,
   HookEventPayload,
   OfficeSnapshot,
   RecencyWindow,
   ServerMessage,
 } from '@office/shared';
 import { loadAliases, saveAliases } from './aliasStore.js';
-import { loadBuildingConfig, saveBuildingConfig } from './buildingStore.js';
+import { isValidFloorTheme, loadBuildingConfig, saveBuildingConfig } from './buildingStore.js';
 import { DemoSimulator } from './demoSimulator.js';
 import { StateStore } from './stateStore.js';
 import { TranscriptWatcher } from './transcriptWatcher.js';
@@ -47,16 +48,44 @@ function isValidRecency(val: unknown): val is RecencyWindow {
   return val === '30m' || val === '2h' || val === 'today';
 }
 
-function setLocalCors(req: http.IncomingMessage, res: http.ServerResponse): void {
+function isAllowedLocalOrigin(origin: string): boolean {
+  return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+}
+
+function setLocalCors(req: http.IncomingMessage, res: http.ServerResponse): boolean {
   const origin = req.headers.origin;
-  if (
-    origin &&
-    (/^http:\/\/localhost(:\d+)?$/.test(origin) || /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin))
-  ) {
+  if (!origin) return true;
+  if (isAllowedLocalOrigin(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    return true;
   }
+  return false;
+}
+
+function hasJsonContentType(req: http.IncomingMessage): boolean {
+  const ct = req.headers['content-type'];
+  if (typeof ct !== 'string') return false;
+  return ct.toLowerCase().trim().startsWith('application/json');
+}
+
+function isPlainObject(val: unknown): val is Record<string, unknown> {
+  return Boolean(val) && typeof val === 'object' && !Array.isArray(val);
+}
+
+function sendBodyParseError(res: http.ServerResponse, err: unknown): void {
+  const msg = err instanceof Error ? err.message : '';
+  if (msg === 'PAYLOAD_TOO_LARGE') {
+    sendJson(res, 413, { ok: false, error: 'Payload too large' });
+    return;
+  }
+  if (msg === 'INVALID_JSON') {
+    sendJson(res, 400, { ok: false, error: 'Invalid JSON body' });
+    return;
+  }
+  sendJson(res, 400, { ok: false, error: 'Bad request' });
 }
 
 function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
@@ -157,7 +186,10 @@ export async function createOfficeServer(
   idleTimer.unref();
 
   const server = http.createServer(async (req, res) => {
-    setLocalCors(req, res);
+    if (!setLocalCors(req, res)) {
+      sendJson(res, 403, { ok: false, error: 'Forbidden origin' });
+      return;
+    }
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
@@ -166,6 +198,39 @@ export async function createOfficeServer(
     }
 
     const url = new URL(req.url || '/', `http://${host}`);
+
+    const persistBuildingOrFail = (): boolean => {
+      if (demoMode) {
+        broadcastSnapshots();
+        return true;
+      }
+      if (!options.buildingFilePath) return true;
+      try {
+        saveBuildingConfig(options.buildingFilePath, stateStore.getBuildingConfig());
+        return true;
+      } catch {
+        sendJson(res, 500, { ok: false, error: 'Failed to save building configuration' });
+        return false;
+      }
+    };
+
+    const requireJsonObjectBody = async (): Promise<Record<string, unknown> | null> => {
+      if (!hasJsonContentType(req)) {
+        sendJson(res, 415, { ok: false, error: 'Content-Type must be application/json' });
+        return null;
+      }
+      try {
+        const body = await readJsonBody(req);
+        if (!isPlainObject(body)) {
+          sendJson(res, 400, { ok: false, error: 'Expected JSON object body' });
+          return null;
+        }
+        return body;
+      } catch (err) {
+        sendBodyParseError(res, err);
+        return null;
+      }
+    };
 
     if (req.method === 'GET' && url.pathname === '/api/health') {
       const snap = stateStore.getSnapshot();
@@ -206,142 +271,137 @@ export async function createOfficeServer(
     }
 
     if (req.method === 'POST' && url.pathname === '/api/demo') {
-      try {
-        const body = (await readJsonBody(req)) as { enabled?: boolean };
-        setDemoMode(Boolean(body?.enabled));
-        sendJson(res, 200, { ok: true, demoMode });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Bad request';
-        sendJson(res, 400, { ok: false, error: msg });
-      }
+      const body = await requireJsonObjectBody();
+      if (!body) return;
+      setDemoMode(Boolean(body.enabled));
+      sendJson(res, 200, { ok: true, demoMode });
       return;
     }
 
     if (req.method === 'POST' && url.pathname === '/api/agent-alias') {
-      try {
-        const body = (await readJsonBody(req)) as { agentId?: unknown; name?: unknown };
-        const agentId = typeof body?.agentId === 'string' ? body.agentId.trim() : '';
-        if (!agentId) {
-          sendJson(res, 400, { ok: false, error: 'agentId is required' });
-          return;
-        }
-        const name =
-          body?.name === null || body?.name === undefined
-            ? null
-            : typeof body.name === 'string'
-              ? body.name
-              : null;
+      const body = await requireJsonObjectBody();
+      if (!body) return;
+      const agentId = typeof body.agentId === 'string' ? body.agentId.trim() : '';
+      if (!agentId) {
+        sendJson(res, 400, { ok: false, error: 'agentId is required' });
+        return;
+      }
+      const name =
+        body.name === null || body.name === undefined
+          ? null
+          : typeof body.name === 'string'
+            ? body.name
+            : null;
 
-        if (demoMode && agentId.startsWith('demo-')) {
-          demoSimulator.setAgentAlias(agentId, name);
-          broadcastSnapshots();
-        } else {
-          stateStore.setAgentAlias(agentId, name);
-          if (options.aliasFilePath) {
+      if (demoMode && agentId.startsWith('demo-')) {
+        demoSimulator.setAgentAlias(agentId, name);
+        broadcastSnapshots();
+      } else {
+        stateStore.setAgentAlias(agentId, name);
+        if (options.aliasFilePath) {
+          try {
             saveAliases(options.aliasFilePath, stateStore.getAliases());
+          } catch {
+            sendJson(res, 500, { ok: false, error: 'Failed to save agent aliases' });
+            return;
           }
         }
-        sendJson(res, 200, { ok: true });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Bad request';
-        sendJson(res, 400, { ok: false, error: msg });
       }
+      sendJson(res, 200, { ok: true });
       return;
     }
 
     if (req.method === 'POST' && url.pathname === '/api/floors') {
-      try {
-        const body = (await readJsonBody(req)) as { name?: unknown };
-        const name = typeof body?.name === 'string' ? body.name : undefined;
-        const floor = demoMode ? demoSimulator.addFloor(name) : stateStore.addFloor(name);
-        if (!floor) {
-          sendJson(res, 400, { ok: false, error: 'Maximum floors reached' });
+      const body = await requireJsonObjectBody();
+      if (!body) return;
+      const name = typeof body.name === 'string' ? body.name : undefined;
+      let theme: FloorTheme | undefined;
+      if (body.theme !== undefined) {
+        if (!isValidFloorTheme(body.theme)) {
+          sendJson(res, 400, { ok: false, error: 'Invalid floor theme' });
           return;
         }
-        if (demoMode) {
-          broadcastSnapshots();
-        } else if (options.buildingFilePath) {
-          saveBuildingConfig(options.buildingFilePath, stateStore.getBuildingConfig());
-        }
-        sendJson(res, 200, { ok: true, floor });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Bad request';
-        sendJson(res, 400, { ok: false, error: msg });
+        theme = body.theme;
       }
+      const floor = demoMode
+        ? demoSimulator.addFloor(name, theme)
+        : stateStore.addFloor(name, theme);
+      if (!floor) {
+        sendJson(res, 400, { ok: false, error: 'Maximum floors reached' });
+        return;
+      }
+      if (!persistBuildingOrFail()) return;
+      sendJson(res, 200, { ok: true, floor });
       return;
     }
 
     if (req.method === 'POST' && url.pathname === '/api/floors/rename') {
-      try {
-        const body = (await readJsonBody(req)) as { floorId?: unknown; name?: unknown };
-        const floorId = typeof body?.floorId === 'string' ? body.floorId.trim() : '';
-        const name = typeof body?.name === 'string' ? body.name : '';
-        const ok = demoMode
-          ? demoSimulator.renameFloor(floorId, name)
-          : stateStore.renameFloor(floorId, name);
-        if (!ok) {
-          sendJson(res, 400, { ok: false, error: 'Invalid floorId or name' });
-          return;
-        }
-        if (demoMode) {
-          broadcastSnapshots();
-        } else if (options.buildingFilePath) {
-          saveBuildingConfig(options.buildingFilePath, stateStore.getBuildingConfig());
-        }
-        sendJson(res, 200, { ok: true });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Bad request';
-        sendJson(res, 400, { ok: false, error: msg });
+      const body = await requireJsonObjectBody();
+      if (!body) return;
+      const floorId = typeof body.floorId === 'string' ? body.floorId.trim() : '';
+      const name = typeof body.name === 'string' ? body.name : '';
+      const ok = demoMode
+        ? demoSimulator.renameFloor(floorId, name)
+        : stateStore.renameFloor(floorId, name);
+      if (!ok) {
+        sendJson(res, 400, { ok: false, error: 'Invalid floorId or name' });
+        return;
       }
+      if (!persistBuildingOrFail()) return;
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/floors/theme') {
+      const body = await requireJsonObjectBody();
+      if (!body) return;
+      const floorId = typeof body.floorId === 'string' ? body.floorId.trim() : '';
+      if (!floorId || !isValidFloorTheme(body.theme)) {
+        sendJson(res, 400, { ok: false, error: 'Invalid floorId or theme' });
+        return;
+      }
+      const ok = demoMode
+        ? demoSimulator.setFloorTheme(floorId, body.theme)
+        : stateStore.setFloorTheme(floorId, body.theme);
+      if (!ok) {
+        sendJson(res, 400, { ok: false, error: 'Floor not found' });
+        return;
+      }
+      if (!persistBuildingOrFail()) return;
+      sendJson(res, 200, { ok: true });
       return;
     }
 
     if (req.method === 'POST' && url.pathname === '/api/floors/delete') {
-      try {
-        const body = (await readJsonBody(req)) as { floorId?: unknown };
-        const floorId = typeof body?.floorId === 'string' ? body.floorId.trim() : '';
-        const ok = demoMode
-          ? demoSimulator.deleteFloor(floorId)
-          : stateStore.deleteFloor(floorId);
-        if (!ok) {
-          sendJson(res, 400, { ok: false, error: 'Cannot delete floor' });
-          return;
-        }
-        if (demoMode) {
-          broadcastSnapshots();
-        } else if (options.buildingFilePath) {
-          saveBuildingConfig(options.buildingFilePath, stateStore.getBuildingConfig());
-        }
-        sendJson(res, 200, { ok: true });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Bad request';
-        sendJson(res, 400, { ok: false, error: msg });
+      const body = await requireJsonObjectBody();
+      if (!body) return;
+      const floorId = typeof body.floorId === 'string' ? body.floorId.trim() : '';
+      const ok = demoMode
+        ? demoSimulator.deleteFloor(floorId)
+        : stateStore.deleteFloor(floorId);
+      if (!ok) {
+        sendJson(res, 400, { ok: false, error: 'Cannot delete floor' });
+        return;
       }
+      if (!persistBuildingOrFail()) return;
+      sendJson(res, 200, { ok: true });
       return;
     }
 
     if (req.method === 'POST' && url.pathname === '/api/team-floor') {
-      try {
-        const body = (await readJsonBody(req)) as { rootId?: unknown; floorId?: unknown };
-        const rootId = typeof body?.rootId === 'string' ? body.rootId.trim() : '';
-        const floorId = typeof body?.floorId === 'string' ? body.floorId.trim() : '';
-        const ok = demoMode
-          ? demoSimulator.setTeamFloor(rootId, floorId)
-          : stateStore.setTeamFloor(rootId, floorId);
-        if (!ok) {
-          sendJson(res, 400, { ok: false, error: 'Invalid rootId or floorId' });
-          return;
-        }
-        if (demoMode) {
-          broadcastSnapshots();
-        } else if (options.buildingFilePath) {
-          saveBuildingConfig(options.buildingFilePath, stateStore.getBuildingConfig());
-        }
-        sendJson(res, 200, { ok: true });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Bad request';
-        sendJson(res, 400, { ok: false, error: msg });
+      const body = await requireJsonObjectBody();
+      if (!body) return;
+      const rootId = typeof body.rootId === 'string' ? body.rootId.trim() : '';
+      const floorId = typeof body.floorId === 'string' ? body.floorId.trim() : '';
+      const ok = demoMode
+        ? demoSimulator.setTeamFloor(rootId, floorId)
+        : stateStore.setTeamFloor(rootId, floorId);
+      if (!ok) {
+        sendJson(res, 400, { ok: false, error: 'Invalid rootId or floorId' });
+        return;
       }
+      if (!persistBuildingOrFail()) return;
+      sendJson(res, 200, { ok: true });
       return;
     }
 
@@ -372,6 +432,12 @@ export async function createOfficeServer(
   const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (req, socket, head) => {
+    const origin = req.headers.origin;
+    if (origin && !isAllowedLocalOrigin(origin)) {
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     const url = new URL(req.url || '/', `http://${host}`);
     if (url.pathname !== '/ws') {
       socket.destroy();

@@ -1,6 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
 import { StateStore } from '../stateStore';
 import { DemoSimulator } from '../demoSimulator';
+import {
+  FLOOR_THEMES,
+  defaultThemeForFloorIndex,
+  isValidFloorTheme,
+  loadBuildingConfig,
+  normalizeBuildingConfig,
+} from '../buildingStore';
 import type { ParsedTranscriptDelta } from '../transcriptParser';
 
 function emptyDelta(overrides: Partial<ParsedTranscriptDelta> = {}): ParsedTranscriptDelta {
@@ -365,6 +375,100 @@ describe('StateStore', () => {
     expect(afterDelete.floors).toHaveLength(1);
     expect(afterDelete.clusters.find((c) => c.rootId === 'team-b')?.floorId).toBe('floor-1');
   });
+
+  it('assigns default floor themes, supports setFloorTheme, and rejects invalid themes', () => {
+    expect(FLOOR_THEMES).toEqual(['engineering', 'lobby', 'creative', 'pantry']);
+    expect(isValidFloorTheme('engineering')).toBe(true);
+    expect(isValidFloorTheme('pantry')).toBe(true);
+    expect(isValidFloorTheme('rooftop')).toBe(false);
+    expect(isValidFloorTheme(null)).toBe(false);
+    expect(defaultThemeForFloorIndex(1)).toBe('engineering');
+    expect(defaultThemeForFloorIndex(2)).toBe('lobby');
+    expect(defaultThemeForFloorIndex(3)).toBe('creative');
+    expect(defaultThemeForFloorIndex(4)).toBe('pantry');
+    expect(defaultThemeForFloorIndex(5)).toBe('engineering');
+
+    const normalized = normalizeBuildingConfig({
+      floors: [
+        { id: 'f1', name: 'One' },
+        { id: 'f2', name: 'Two', theme: 'invalid-theme' },
+        { id: 'f3', name: 'Three', theme: 'pantry' },
+      ],
+    });
+    expect(normalized.floors.map((f) => f.theme)).toEqual(['engineering', 'lobby', 'pantry']);
+
+    const store = new StateStore();
+    const onChange = vi.fn();
+    store.onChange(onChange);
+
+    // Default Floor 1 has 'engineering'
+    expect(store.getSnapshot().floors[0].theme).toBe('engineering');
+
+    // Adding floors assigns default theme by index unless valid theme provided
+    const f2 = store.addFloor('Second');
+    const f3 = store.addFloor('Third', 'pantry');
+    const f4 = store.addFloor('Fourth');
+    expect(f2?.theme).toBe('lobby');
+    expect(f3?.theme).toBe('pantry');
+    expect(f4?.theme).toBe('pantry');
+
+    onChange.mockClear();
+    expect(store.setFloorTheme('floor-1', 'creative')).toBe(true);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(store.getSnapshot().floors[0].theme).toBe('creative');
+
+    // Rejects invalid theme and unknown floorId
+    onChange.mockClear();
+    expect(store.setFloorTheme('floor-1', 'invalid' as never)).toBe(false);
+    expect(store.setFloorTheme('non-existent', 'lobby')).toBe(false);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(store.getSnapshot().floors[0].theme).toBe('creative');
+  });
+
+  it('loads legacy building-config.json without theme or with invalid theme safely and preserves remaining themes on deleteFloor', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-bldg-test-'));
+    try {
+      const legacyFile = path.join(tmpDir, 'building-config.json');
+      fs.writeFileSync(
+        legacyFile,
+        JSON.stringify({
+          floors: [
+            { id: 'floor-1', index: 1, name: 'Legacy 1' },
+            { id: 'floor-2', index: 2, name: 'Legacy 2', theme: 'not-a-theme' },
+            { id: 'floor-3', index: 3, name: 'Legacy 3', theme: 'pantry' },
+          ],
+          teamFloors: { 'team-x': 'floor-2' },
+        }),
+        'utf-8',
+      );
+
+      const loaded = loadBuildingConfig(legacyFile);
+      expect(loaded.floors.map((f) => ({ id: f.id, theme: f.theme }))).toEqual([
+        { id: 'floor-1', theme: 'engineering' },
+        { id: 'floor-2', theme: 'lobby' },
+        { id: 'floor-3', theme: 'pantry' },
+      ]);
+
+      // Corrupt JSON falls back cleanly to default building config
+      const corruptFile = path.join(tmpDir, 'corrupt.json');
+      fs.writeFileSync(corruptFile, '{not valid json', 'utf-8');
+      expect(loadBuildingConfig(corruptFile).floors).toEqual([
+        { id: 'floor-1', index: 1, name: 'Lantai 1', theme: 'engineering' },
+      ]);
+
+      // Deleting middle floor preserves chosen themes on remaining floors
+      const store = new StateStore({ initialBuilding: loaded });
+      expect(store.setFloorTheme('floor-1', 'creative')).toBe(true);
+      expect(store.deleteFloor('floor-2')).toBe(true);
+      const after = store.getSnapshot();
+      expect(after.floors).toEqual([
+        { id: 'floor-1', index: 1, name: 'Legacy 1', theme: 'creative' },
+        { id: 'floor-3', index: 2, name: 'Legacy 3', theme: 'pantry' },
+      ]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('DemoSimulator', () => {
@@ -373,9 +477,25 @@ describe('DemoSimulator', () => {
     const snap1 = sim.getSnapshot();
     expect(snap1.demoMode).toBe(true);
     expect(snap1.floors).toHaveLength(2);
+    expect(snap1.floors[0]).toMatchObject({ id: 'demo-floor-1', name: 'Core Office', theme: 'engineering' });
+    expect(snap1.floors[1]).toMatchObject({ id: 'demo-floor-2', name: 'Mobile Lab', theme: 'creative' });
     expect(snap1.clusters).toHaveLength(2);
     expect(snap1.clusters[0].floorId).not.toBe(snap1.clusters[1].floorId);
     expect(Object.keys(snap1.agents).length).toBeGreaterThanOrEqual(4);
+
+    const added = sim.addFloor('Lounge', 'pantry');
+    expect(added).toMatchObject({ index: 3, name: 'Lounge', theme: 'pantry' });
+    expect(sim.setFloorTheme('demo-floor-1', 'lobby')).toBe(true);
+    expect(sim.getSnapshot().floors[0].theme).toBe('lobby');
+    expect(sim.setFloorTheme('demo-floor-1', 'bad' as never)).toBe(false);
+    expect(sim.setFloorTheme('missing', 'pantry')).toBe(false);
+
+    // Deleting middle floor preserves remaining floors' chosen themes
+    expect(sim.deleteFloor('demo-floor-2')).toBe(true);
+    expect(sim.getSnapshot().floors.map((f) => ({ id: f.id, index: f.index, theme: f.theme }))).toEqual([
+      { id: 'demo-floor-1', index: 1, theme: 'lobby' },
+      { id: added!.id, index: 2, theme: 'pantry' },
+    ]);
 
     const snap2 = sim.step();
     expect(snap2.generatedAt).toBeGreaterThanOrEqual(snap1.generatedAt);

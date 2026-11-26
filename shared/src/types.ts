@@ -59,10 +59,13 @@ export interface AgentNode {
   errorMessage?: string;
 }
 
+export type FloorTheme = 'engineering' | 'lobby' | 'creative' | 'pantry';
+
 export interface FloorConfig {
   id: string;
   index: number;
   name: string;
+  theme?: FloorTheme;
 }
 
 export interface BuildingConfig {
