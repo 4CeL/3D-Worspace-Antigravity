@@ -98,4 +98,25 @@ describe('computeOfficeLayout', () => {
       expect(Math.abs(desk.position[2] - cluster.center[2])).toBeLessThanOrEqual(halfD);
     }
   });
+
+  it('does not place a phantom desk when cluster.leadAgentId is absent from cluster.agentIds', () => {
+    const sub1 = 'sub-1';
+    const agents: Record<string, AgentNode> = {
+      [sub1]: makeAgent(sub1, 'missing-lead', 'missing-lead'),
+    };
+    const clusters: TeamCluster[] = [
+      {
+        rootId: 'missing-lead',
+        projectName: '3D Workspace',
+        title: 'Main',
+        leadAgentId: 'missing-lead',
+        agentIds: [sub1],
+        lastUpdatedAt: Date.now(),
+      },
+    ];
+
+    const layout = computeOfficeLayout(clusters, agents);
+    expect(layout.desks['missing-lead']).toBeUndefined();
+    expect(layout.desks[sub1]).toBeDefined();
+  });
 });

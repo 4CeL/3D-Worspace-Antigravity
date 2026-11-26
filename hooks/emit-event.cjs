@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('node:fs');
 const http = require('node:http');
 
 const PORT = Number(process.env.OFFICE_PORT || 4174);
@@ -20,6 +21,11 @@ function getPassThroughOutput(eventName) {
   return '{}';
 }
 
+function detectEventNameFallback(raw) {
+  const match = raw.match(/"hookEventName"\s*:\s*"([^"]+)"/);
+  return match ? match[1] : '';
+}
+
 let rawInput = '';
 let finalized = false;
 
@@ -27,7 +33,7 @@ function finish(output) {
   if (finalized) return;
   finalized = true;
   try {
-    process.stdout.write(output + '\n');
+    fs.writeSync(1, output + '\n');
   } catch {
     // ignore stdout errors
   }
@@ -49,9 +55,10 @@ process.stdin.on('end', () => {
     parsed = null;
   }
 
-  const eventName = parsed && typeof parsed.hookEventName === 'string'
-    ? parsed.hookEventName
-    : '';
+  const eventName =
+    parsed && typeof parsed.hookEventName === 'string'
+      ? parsed.hookEventName
+      : detectEventNameFallback(rawInput);
   const output = getPassThroughOutput(eventName);
 
   if (!parsed || typeof parsed !== 'object') {

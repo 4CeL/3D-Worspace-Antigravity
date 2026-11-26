@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { StrictMode } from 'react';
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import type { AgentNode } from '@office/shared';
 import { TopBar } from '../ui/TopBar';
 import { InspectorDrawer } from '../ui/InspectorDrawer';
+import { useOfficeSocket } from '../hooks/useOfficeSocket';
+import { filterSnapshotForView } from '../ui/filterSnapshot';
 
 afterEach(() => {
   cleanup();
@@ -154,5 +156,110 @@ describe('InspectorDrawer', () => {
     // Close via Escape
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useOfficeSocket StrictMode guard', () => {
+  it('keeps active WebSocket reference and sends set_recency even when stale first mount socket closes later', () => {
+    const sockets: Array<{
+      readyState: number;
+      sent: string[];
+      onopen: (() => void) | null;
+      onclose: (() => void) | null;
+      onmessage: ((ev: { data: string }) => void) | null;
+      onerror: (() => void) | null;
+      send: (d: string) => void;
+      close: () => void;
+    }> = [];
+
+    class FakeWebSocket {
+      static OPEN = 1;
+      readyState = 1;
+      sent: string[] = [];
+      onopen: (() => void) | null = null;
+      onclose: (() => void) | null = null;
+      onmessage: ((ev: { data: string }) => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor() {
+        sockets.push(this);
+      }
+      send(d: string) {
+        this.sent.push(d);
+      }
+      close() {
+        this.readyState = 3;
+      }
+    }
+
+    const origWs = globalThis.WebSocket;
+    Object.defineProperty(globalThis, 'WebSocket', { value: FakeWebSocket, configurable: true });
+
+    let latestRecencyFn: ((r: '30m' | '2h' | 'today') => void) | null = null;
+    function Harness() {
+      const { connected, setRecency } = useOfficeSocket();
+      latestRecencyFn = setRecency;
+      return <div data-testid="conn">{connected ? 'yes' : 'no'}</div>;
+    }
+
+    try {
+      render(
+        <StrictMode>
+          <Harness />
+        </StrictMode>,
+      );
+
+      expect(sockets.length).toBeGreaterThanOrEqual(2);
+      const firstWs = sockets[0];
+      const activeWs = sockets[sockets.length - 1];
+
+      act(() => {
+        activeWs.onopen?.();
+      });
+      expect(screen.getByTestId('conn').textContent).toBe('yes');
+
+      // Stale first socket finishes closing asynchronously AFTER second socket opened
+      act(() => {
+        firstWs.onclose?.();
+      });
+      expect(screen.getByTestId('conn').textContent).toBe('yes');
+
+      act(() => {
+        latestRecencyFn?.('2h');
+      });
+      expect(activeWs.sent.some((s) => s.includes('"set_recency"') && s.includes('"2h"'))).toBe(true);
+    } finally {
+      Object.defineProperty(globalThis, 'WebSocket', { value: origWs, configurable: true });
+    }
+  });
+});
+
+describe('filterSnapshotForView', () => {
+  it('falls back to ALL when selectedProject disappears (e.g. leaving Demo Mode) and promotes active lead under hideFinished', () => {
+    const idleLead: AgentNode = { ...leadAgent, status: 'idle' };
+    const activeSub: AgentNode = { ...subAgent, status: 'reading' };
+    const snap = {
+      generatedAt: Date.now(),
+      hookActive: true,
+      lastHookAt: Date.now(),
+      demoMode: false,
+      clusters: [
+        {
+          rootId: idleLead.id,
+          projectName: '3D Workspace',
+          title: idleLead.displayName,
+          leadAgentId: idleLead.id,
+          agentIds: [idleLead.id, activeSub.id],
+          lastUpdatedAt: Date.now(),
+        },
+      ],
+      agents: { [idleLead.id]: idleLead, [activeSub.id]: activeSub },
+      activePulses: [],
+    };
+
+    const result = filterSnapshotForView(snap, 'Mobile Commerce', true);
+    expect(result.effectiveProject).toBe('ALL');
+    expect(result.snapshot.clusters).toHaveLength(1);
+    expect(result.snapshot.clusters[0].agentIds).toEqual([activeSub.id]);
+    expect(result.snapshot.clusters[0].leadAgentId).toBe(activeSub.id);
   });
 });

@@ -12,6 +12,7 @@ interface OfficeCanvasProps {
   selectedAgentId: string | null;
   showLabels: boolean;
   focusAgentId: string | null;
+  focusNonce: number;
   resetNonce: number;
   onSelectAgent: (agentId: string | null) => void;
 }
@@ -21,6 +22,7 @@ export const OfficeCanvas: React.FC<OfficeCanvasProps> = ({
   selectedAgentId,
   showLabels,
   focusAgentId,
+  focusNonce,
   resetNonce,
   onSelectAgent,
 }) => {
@@ -92,6 +94,7 @@ export const OfficeCanvas: React.FC<OfficeCanvasProps> = ({
         <CameraRig
           floorSize={floorSize}
           focusTarget={focusTarget}
+          focusNonce={focusNonce}
           resetNonce={resetNonce}
         />
       </Canvas>

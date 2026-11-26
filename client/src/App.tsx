@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import { FlaskConical, Sparkles } from 'lucide-react';
-import type { OfficeSnapshot } from '@office/shared';
 import { useOfficeSocket } from './hooks/useOfficeSocket';
 import { OfficeCanvas } from './scene/OfficeCanvas';
 import { TopBar } from './ui/TopBar';
 import { InspectorDrawer } from './ui/InspectorDrawer';
+import { filterSnapshotForView } from './ui/filterSnapshot';
 
 export const App: React.FC = () => {
   const { snapshot, connected, recency, setRecency, toggleDemo } = useOfficeSocket();
@@ -13,43 +13,13 @@ export const App: React.FC = () => {
   const [hideFinished, setHideFinished] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [focusAgentId, setFocusAgentId] = useState<string | null>(null);
+  const [focusNonce, setFocusNonce] = useState(0);
   const [resetNonce, setResetNonce] = useState(0);
 
-  const projects = useMemo(() => {
-    const names = new Set<string>();
-    for (const c of snapshot.clusters) {
-      names.add(c.projectName);
-    }
-    return Array.from(names).sort();
-  }, [snapshot.clusters]);
-
-  const filteredSnapshot = useMemo<OfficeSnapshot>(() => {
-    const clusters = snapshot.clusters
-      .filter((c) => selectedProject === 'ALL' || c.projectName === selectedProject)
-      .map((c) => {
-        if (!hideFinished) return c;
-        const activeIds = c.agentIds.filter((id) => snapshot.agents[id]?.status !== 'idle');
-        return { ...c, agentIds: activeIds };
-      })
-      .filter((c) => c.agentIds.length > 0);
-
-    const visibleIds = new Set(clusters.flatMap((c) => c.agentIds));
-    const agents: OfficeSnapshot['agents'] = {};
-    for (const id of visibleIds) {
-      if (snapshot.agents[id]) {
-        agents[id] = snapshot.agents[id];
-      }
-    }
-
-    return {
-      ...snapshot,
-      clusters,
-      agents,
-      activePulses: snapshot.activePulses.filter(
-        (p) => visibleIds.has(p.fromAgentId) && visibleIds.has(p.toAgentId),
-      ),
-    };
-  }, [snapshot, selectedProject, hideFinished]);
+  const { projects, effectiveProject, snapshot: filteredSnapshot } = useMemo(
+    () => filterSnapshotForView(snapshot, selectedProject, hideFinished),
+    [snapshot, selectedProject, hideFinished],
+  );
 
   const allAgentsList = Object.values(filteredSnapshot.agents);
   const activeCount = allAgentsList.filter((a) => a.status !== 'idle').length;
@@ -57,12 +27,16 @@ export const App: React.FC = () => {
 
   const handleSelectAgent = (id: string | null) => {
     setSelectedAgentId(id);
-    if (id) setFocusAgentId(id);
+    if (id) {
+      setFocusAgentId(id);
+      setFocusNonce((n) => n + 1);
+    }
   };
 
   const handleFocusAgent = (id: string) => {
     setSelectedAgentId(id);
     setFocusAgentId(id);
+    setFocusNonce((n) => n + 1);
   };
 
   return (
@@ -72,6 +46,7 @@ export const App: React.FC = () => {
         selectedAgentId={selectedAgentId}
         showLabels={showLabels}
         focusAgentId={focusAgentId}
+        focusNonce={focusNonce}
         resetNonce={resetNonce}
         onSelectAgent={handleSelectAgent}
       />
@@ -83,7 +58,7 @@ export const App: React.FC = () => {
         hookActive={snapshot.hookActive}
         demoMode={snapshot.demoMode}
         projects={projects}
-        selectedProject={selectedProject}
+        selectedProject={effectiveProject}
         recency={recency}
         showLabels={showLabels}
         hideFinished={hideFinished}

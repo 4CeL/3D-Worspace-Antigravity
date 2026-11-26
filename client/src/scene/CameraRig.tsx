@@ -7,29 +7,41 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 interface CameraRigProps {
   floorSize: number;
   focusTarget: [number, number, number] | null;
+  focusNonce: number;
   resetNonce: number;
 }
 
-export const CameraRig: React.FC<CameraRigProps> = ({ floorSize, focusTarget, resetNonce }) => {
+export const CameraRig: React.FC<CameraRigProps> = ({
+  floorSize,
+  focusTarget,
+  focusNonce,
+  resetNonce,
+}) => {
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const { camera } = useThree();
   const desiredTarget = useRef<THREE.Vector3 | null>(null);
   const desiredPos = useRef<THREE.Vector3 | null>(null);
 
   const defaultDist = Math.max(13, floorSize * 0.85);
+  const defaultDistRef = useRef(defaultDist);
+  defaultDistRef.current = defaultDist;
+
+  const focusTargetRef = useRef(focusTarget);
+  focusTargetRef.current = focusTarget;
 
   useEffect(() => {
-    if (!focusTarget) return;
-    const [x, y, z] = focusTarget;
+    if (focusNonce === 0 || !focusTargetRef.current) return;
+    const [x, y, z] = focusTargetRef.current;
     desiredTarget.current = new THREE.Vector3(x, y + 0.8, z);
     desiredPos.current = new THREE.Vector3(x + 7.5, y + 7.2, z + 7.5);
-  }, [focusTarget]);
+  }, [focusNonce]);
 
   useEffect(() => {
     if (resetNonce === 0) return;
+    const dist = defaultDistRef.current;
     desiredTarget.current = new THREE.Vector3(0, 0.4, 0);
-    desiredPos.current = new THREE.Vector3(defaultDist, defaultDist * 0.9, defaultDist);
-  }, [resetNonce, defaultDist]);
+    desiredPos.current = new THREE.Vector3(dist, dist * 0.9, dist);
+  }, [resetNonce]);
 
   useFrame((_, delta) => {
     if (!controlsRef.current || !desiredTarget.current || !desiredPos.current) return;

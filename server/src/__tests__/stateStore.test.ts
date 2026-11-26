@@ -212,6 +212,90 @@ describe('StateStore', () => {
     expect(store.getSnapshot({ now: t0 + 1000 }).activePulses).toHaveLength(1);
     expect(store.getSnapshot({ now: t0 + 6000 }).activePulses).toHaveLength(0);
   });
+
+  it('preserves parallel same-tool transcript calls and read+edit on the same file in one turn without over-deduping', () => {
+    const store = new StateStore();
+    const t0 = 1_700_000_000_000;
+
+    store.applyTranscriptDelta(
+      'c1',
+      emptyDelta({
+        fileTouches: [
+          { path: 'D:\\Proj\\a.ts', fileName: 'a.ts', action: 'read', timestamp: t0 },
+          { path: 'D:\\Proj\\a.ts', fileName: 'a.ts', action: 'edit', timestamp: t0 },
+        ],
+        activities: [
+          {
+            id: 'tr-1-0-read_file',
+            timestamp: t0,
+            toolName: 'read_file',
+            status: 'reading',
+            summary: 'Membaca a.ts',
+            targetPath: 'D:\\Proj\\a.ts',
+            fileAction: 'read',
+          },
+          {
+            id: 'tr-1-1-edit_file',
+            timestamp: t0,
+            toolName: 'edit_file',
+            status: 'editing',
+            summary: 'Mengedit a.ts',
+            targetPath: 'D:\\Proj\\a.ts',
+            fileAction: 'edit',
+          },
+          {
+            id: 'tr-1-2-run_command',
+            timestamp: t0,
+            toolName: 'run_command',
+            status: 'running',
+            summary: 'Run lint',
+          },
+          {
+            id: 'tr-1-3-run_command',
+            timestamp: t0,
+            toolName: 'run_command',
+            status: 'running',
+            summary: 'Run tests',
+          },
+        ],
+        lastStatus: 'running',
+        lastToolName: 'run_command',
+        lastTimestamp: t0,
+      }),
+      t0,
+    );
+
+    const agent = store.getSnapshot({ now: t0 + 100 }).agents['c1'];
+    expect(agent.files[0].count).toBe(2);
+    expect(agent.files[0].action).toBe('edit');
+    expect(agent.recentActivity.filter((a) => a.toolName === 'run_command')).toHaveLength(2);
+    expect(agent.currentFile).toBeUndefined();
+  });
+
+  it('clears currentFile when agent switches from editing a file to run_command or Stop', () => {
+    const store = new StateStore();
+    const t0 = 1_700_000_000_000;
+
+    store.applyHookEvent(
+      {
+        hookEventName: 'PreToolUse',
+        conversationId: 'c1',
+        toolCall: { id: 't1', name: 'edit_file', args: { Path: 'D:\\Proj\\app.ts' } },
+      },
+      t0,
+    );
+    expect(store.getSnapshot({ now: t0 }).agents['c1'].currentFile?.fileName).toBe('app.ts');
+
+    store.applyHookEvent(
+      {
+        hookEventName: 'PreToolUse',
+        conversationId: 'c1',
+        toolCall: { id: 't2', name: 'run_command', args: { toolSummary: 'Run tests' } },
+      },
+      t0 + 500,
+    );
+    expect(store.getSnapshot({ now: t0 + 500 }).agents['c1'].currentFile).toBeUndefined();
+  });
 });
 
 describe('DemoSimulator', () => {

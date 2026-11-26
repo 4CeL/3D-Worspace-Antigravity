@@ -44,11 +44,14 @@ export const AgentDesk: React.FC<AgentDeskProps> = ({
   const deskWidth = isLead ? 1.72 : 1.44;
   const isActive = agent.status !== 'idle';
 
-  const pillTarget = agent.currentFile
-    ? `${shortText(agent.currentFile.fileName, 18)} · ${agent.currentFile.action}`
-    : agent.focusText
-      ? shortText(agent.focusText, 22)
-      : style.label;
+  const showFileInPill =
+    Boolean(agent.currentFile) && (agent.status === 'editing' || agent.status === 'reading');
+  const pillTarget =
+    showFileInPill && agent.currentFile
+      ? `${shortText(agent.currentFile.fileName, 18)} · ${agent.currentFile.action}`
+      : agent.focusText
+        ? shortText(agent.focusText, 22)
+        : style.label;
 
   return (
     <group

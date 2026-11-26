@@ -101,7 +101,7 @@ function getRecencyCutoffMs(recency: RecencyWindow, now: number): number {
 export class StateStore {
   private readonly agents = new Map<string, InternalAgent>();
   private readonly parentLinks = new Map<string, ParentLink>();
-  private readonly recentDedup = new Map<string, number>();
+  private readonly recentDedup = new Map<string, { timestamp: number; source: 'hook' | 'transcript' }>();
   private readonly seenToolCallIds = new Set<string>();
   private readonly pulses: ActivePulse[] = [];
   private readonly listeners = new Set<() => void>();
@@ -186,6 +186,7 @@ export class StateStore {
   }
 
   private isDuplicateEvent(
+    source: 'hook' | 'transcript',
     conversationId: string,
     toolName: string,
     target: string | undefined,
@@ -205,14 +206,20 @@ export class StateStore {
     const normTarget = target ? normalizePathKey(target) : '';
     const sig = `${conversationId}|${toolName}|${normTarget}`;
     const prev = this.recentDedup.get(sig);
-    if (prev !== undefined && Math.abs(timestamp - prev) <= DEDUP_WINDOW_MS) {
+    // Only deduplicate across different ingestion sources (hook vs transcript) so rapid/parallel
+    // same-tool calls within a single transcript turn are never dropped.
+    if (
+      prev !== undefined &&
+      prev.source !== source &&
+      Math.abs(timestamp - prev.timestamp) <= DEDUP_WINDOW_MS
+    ) {
       return true;
     }
-    this.recentDedup.set(sig, timestamp);
+    this.recentDedup.set(sig, { timestamp, source });
 
     if (this.recentDedup.size > 2000) {
-      for (const [k, ts] of this.recentDedup) {
-        if (timestamp - ts > DEDUP_WINDOW_MS * 5) {
+      for (const [k, entry] of this.recentDedup) {
+        if (timestamp - entry.timestamp > DEDUP_WINDOW_MS * 5) {
           this.recentDedup.delete(k);
         }
       }
@@ -361,16 +368,21 @@ export class StateStore {
       }
 
       const dup = this.isDuplicateEvent(
+        'hook',
         agent.id,
         payload.toolCall.name,
         classified.filePath,
         now,
         payload.toolCall.id,
       );
-      if (!dup) {
-        if (classified.filePath && classified.fileName && classified.fileAction) {
+      if (classified.filePath && classified.fileName && classified.fileAction) {
+        if (!dup) {
           this.recordFileTouch(agent, classified.filePath, classified.fileName, classified.fileAction, now);
         }
+      } else {
+        agent.currentFile = undefined;
+      }
+      if (!dup) {
         this.pushActivity(agent, {
           id: payload.toolCall.id || `hk-${now}-${payload.toolCall.name}`,
           timestamp: now,
@@ -401,6 +413,7 @@ export class StateStore {
       } else {
         agent.status = 'idle';
         agent.currentTool = undefined;
+        agent.currentFile = undefined;
       }
     }
 
@@ -434,12 +447,20 @@ export class StateStore {
       agent.focusText = delta.focusText;
     }
 
+    const usedActivityIdx = new Set<number>();
     for (const touch of delta.fileTouches) {
-      const matchingActivity = delta.activities.find(
-        (a) => a.targetPath === touch.path && a.timestamp === touch.timestamp,
+      const matchIdx = delta.activities.findIndex(
+        (a, idx) =>
+          !usedActivityIdx.has(idx) &&
+          a.targetPath === touch.path &&
+          a.fileAction === touch.action &&
+          a.timestamp === touch.timestamp,
       );
+      const matchingActivity = matchIdx >= 0 ? delta.activities[matchIdx] : undefined;
+      if (matchIdx >= 0) usedActivityIdx.add(matchIdx);
+
       const toolName = matchingActivity?.toolName || (touch.action === 'read' ? 'read_file' : 'edit_file');
-      const dup = this.isDuplicateEvent(conversationId, toolName, touch.path, touch.timestamp);
+      const dup = this.isDuplicateEvent('transcript', conversationId, toolName, touch.path, touch.timestamp);
       if (!dup) {
         const { fullPath, fileName } = normalizeFilePath(touch.path);
         this.recordFileTouch(agent, fullPath, fileName, touch.action, touch.timestamp);
@@ -449,13 +470,14 @@ export class StateStore {
       }
     }
 
-    for (const act of delta.activities) {
-      if (act.targetPath && act.fileAction) continue; // handled above with fileTouch dedup
-      const dup = this.isDuplicateEvent(conversationId, act.toolName, act.targetPath, act.timestamp);
+    delta.activities.forEach((act, idx) => {
+      if (usedActivityIdx.has(idx)) return;
+      if (act.targetPath && act.fileAction) return;
+      const dup = this.isDuplicateEvent('transcript', conversationId, act.toolName, act.targetPath, act.timestamp);
       if (!dup) {
         this.pushActivity(agent, act);
       }
-    }
+    });
 
     for (const pulse of delta.messagePulses) {
       this.recordPulse(conversationId, pulse.toAgentId, pulse.timestamp);
@@ -477,6 +499,9 @@ export class StateStore {
       agent.status = delta.lastStatus;
       if (delta.lastToolName) agent.currentTool = delta.lastToolName;
       if (delta.lastError) agent.errorMessage = delta.lastError;
+      if (delta.lastStatus !== 'editing' && delta.lastStatus !== 'reading') {
+        agent.currentFile = undefined;
+      }
     }
 
     // If this transcript's last event is already older than IDLE_TIMEOUT_MS, mark idle

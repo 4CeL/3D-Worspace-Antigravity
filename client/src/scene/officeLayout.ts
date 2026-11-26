@@ -115,6 +115,11 @@ export function computeOfficeLayout(
     const cz = rowCenters[row];
     const { cluster, rugWidth, rugDepth, subCols } = m;
 
+    const effectiveLeadId = cluster.agentIds.includes(cluster.leadAgentId)
+      ? cluster.leadAgentId
+      : cluster.agentIds[0];
+    if (!effectiveLeadId) return;
+
     clusterPlacements.push({
       rootId: cluster.rootId,
       projectName: cluster.projectName,
@@ -123,18 +128,19 @@ export function computeOfficeLayout(
       rugWidth,
       rugDepth,
       rugColor: RUG_PALETTE[idx % RUG_PALETTE.length],
-      leadAgentId: cluster.leadAgentId,
+      leadAgentId: effectiveLeadId,
       agentIds: cluster.agentIds,
     });
 
-    const subIds = cluster.agentIds.filter((id) => id !== cluster.leadAgentId);
+    const subIds = cluster.agentIds.filter((id) => id !== effectiveLeadId);
     const hasSubs = subIds.length > 0;
     const leadZ = hasSubs ? cz - rugDepth / 2 + 1.85 : cz;
+    const leadAgent = agents[effectiveLeadId];
 
-    desks[cluster.leadAgentId] = {
-      agentId: cluster.leadAgentId,
+    desks[effectiveLeadId] = {
+      agentId: effectiveLeadId,
       clusterId: cluster.rootId,
-      isLead: true,
+      isLead: leadAgent ? !leadAgent.isSubagent : true,
       position: [cx, 0, leadZ],
       rotationY: 0,
     };

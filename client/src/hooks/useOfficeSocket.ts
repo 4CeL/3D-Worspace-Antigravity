@@ -72,6 +72,7 @@ export function useOfficeSocket(): UseOfficeSocketResult {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        if (wsRef.current !== ws) return;
         attempt = 0;
         setConnected(true);
         const sub: ClientMessage = { type: 'subscribe', recency: recencyRef.current };
@@ -79,6 +80,7 @@ export function useOfficeSocket(): UseOfficeSocketResult {
       };
 
       ws.onmessage = (event) => {
+        if (wsRef.current !== ws) return;
         try {
           const msg = JSON.parse(String(event.data)) as ServerMessage;
           if (msg.type === 'snapshot') {
@@ -90,6 +92,7 @@ export function useOfficeSocket(): UseOfficeSocketResult {
       };
 
       ws.onclose = () => {
+        if (wsRef.current !== ws) return;
         setConnected(false);
         wsRef.current = null;
         if (!closed) {
@@ -100,6 +103,7 @@ export function useOfficeSocket(): UseOfficeSocketResult {
       };
 
       ws.onerror = () => {
+        if (wsRef.current !== ws) return;
         try {
           ws.close();
         } catch {

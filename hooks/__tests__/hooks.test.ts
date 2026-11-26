@@ -68,6 +68,25 @@ describe('hooks/emit-event.cjs', () => {
     }
   });
 
+  it('still emits {"decision":"allow"} when PreToolUse stdin exceeds 1MB and truncates mid-JSON', () => {
+    const hugeContent = 'x'.repeat(1_200_000);
+    const oversizedPayload = JSON.stringify({
+      hookEventName: 'PreToolUse',
+      conversationId: 'conv-big',
+      toolCall: { id: 't-big', name: 'write_file', args: { Path: 'big.txt', Content: hugeContent } },
+    });
+
+    const res = spawnSync(process.execPath, [EMIT_SCRIPT], {
+      input: oversizedPayload,
+      env: { ...process.env, OFFICE_PORT: '1' },
+      encoding: 'utf-8',
+      timeout: 3000,
+    });
+
+    expect(res.status).toBe(0);
+    expect(JSON.parse(res.stdout.trim())).toEqual({ decision: 'allow' });
+  });
+
   it('delivers parsed JSON payload to a live local HTTP endpoint on 127.0.0.1', async () => {
     const received: unknown[] = [];
     const server = http.createServer((req, res) => {
