@@ -188,6 +188,7 @@ export class TranscriptWatcher {
         delta.fileTouches.length > 0 ||
         delta.subagentLinks.length > 0 ||
         delta.messagePulses.length > 0 ||
+        delta.failedSubagentIds.length > 0 ||
         delta.modelName !== undefined ||
         delta.firstUserPrompt !== undefined ||
         delta.focusText !== undefined ||

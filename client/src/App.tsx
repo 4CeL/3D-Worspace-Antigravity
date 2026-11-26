@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { FlaskConical, Sparkles } from 'lucide-react';
+import { Eye, FlaskConical, Sparkles } from 'lucide-react';
 import { useOfficeSocket } from './hooks/useOfficeSocket';
 import { OfficeCanvas } from './scene/OfficeCanvas';
 import { TopBar } from './ui/TopBar';
@@ -15,6 +15,8 @@ export const App: React.FC = () => {
     setRecency,
     toggleDemo,
     renameAgent,
+    hideAgent,
+    unhideAllAgents,
     addFloor,
     renameFloor,
     deleteFloor,
@@ -119,6 +121,14 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleHideAgent = async (agentId: string) => {
+    if (selectedAgentId === agentId) {
+      setSelectedAgentId(null);
+      setFocusAgentId(null);
+    }
+    await hideAgent(agentId);
+  };
+
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-[#f4ede4]">
       <OfficeCanvas
@@ -145,10 +155,12 @@ export const App: React.FC = () => {
         recency={recency}
         showLabels={showLabels}
         hideFinished={hideFinished}
+        hiddenCount={snapshot.hiddenCount ?? 0}
         onSelectProject={setSelectedProject}
         onChangeRecency={setRecency}
         onToggleLabels={() => setShowLabels((v) => !v)}
         onToggleHideFinished={() => setHideFinished((v) => !v)}
+        onUnhideAll={() => void unhideAllAgents()}
         onToggleDemo={() => {
           setFocusedFloorIndex(null);
           setFloorFocusNonce((n) => n + 1);
@@ -180,6 +192,7 @@ export const App: React.FC = () => {
         onFocusAgent={handleFocusAgent}
         onRenameAgent={(id, name) => void renameAgent(id, name)}
         onMoveTeamFloor={(rootId, floorId) => void handleMoveTeamFloor(rootId, floorId)}
+        onHideAgent={(id) => void handleHideAgent(id)}
       />
 
       {/* Cozy empty-state card when no recent Antigravity sessions are visible */}
@@ -191,17 +204,32 @@ export const App: React.FC = () => {
               <span>Kantor lagi sepi nih</span>
             </div>
             <p className="text-xs text-stone-500">
-              Mulai chat dengan agent di Antigravity — mejanya akan langsung muncul di sini. Atau
-              coba lihat gedung kantor bertingkatnya dulu pakai Mode Simulasi.
+              {(snapshot.hiddenCount ?? 0) > 0
+                ? `Ada ${snapshot.hiddenCount} meja yang sedang disembunyikan. Pulihkan untuk menampilkannya kembali di kantor.`
+                : 'Mulai chat dengan agent di Antigravity — mejanya akan langsung muncul di sini. Atau coba lihat gedung kantor bertingkatnya dulu pakai Mode Simulasi.'}
             </p>
-            <button
-              type="button"
-              onClick={() => void toggleDemo(true)}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-violet-700"
-            >
-              <FlaskConical className="h-3.5 w-3.5" />
-              <span>Coba Mode Simulasi</span>
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {(snapshot.hiddenCount ?? 0) > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void unhideAllAgents()}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-1.5 text-xs font-semibold text-amber-800 shadow-xs transition hover:bg-amber-100"
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                  <span>Pulihkan {snapshot.hiddenCount} Meja</span>
+                </button>
+              )}
+              {!snapshot.demoMode && (
+                <button
+                  type="button"
+                  onClick={() => void toggleDemo(true)}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-violet-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-violet-700"
+                >
+                  <FlaskConical className="h-3.5 w-3.5" />
+                  <span>Coba Mode Simulasi</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

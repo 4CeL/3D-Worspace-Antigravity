@@ -16,6 +16,7 @@ const EMPTY_SNAPSHOT: OfficeSnapshot = {
   clusters: [],
   agents: {},
   activePulses: [],
+  hiddenCount: 0,
 };
 
 export interface UseOfficeSocketResult {
@@ -25,6 +26,8 @@ export interface UseOfficeSocketResult {
   setRecency: (next: RecencyWindow) => void;
   toggleDemo: (enabled: boolean) => Promise<void>;
   renameAgent: (agentId: string, name: string | null) => Promise<void>;
+  hideAgent: (agentId: string) => Promise<void>;
+  unhideAllAgents: () => Promise<void>;
   addFloor: (name?: string) => Promise<{ id: string; index: number; name: string } | null>;
   renameFloor: (floorId: string, name: string) => Promise<void>;
   deleteFloor: (floorId: string) => Promise<void>;
@@ -73,6 +76,30 @@ export function useOfficeSocket(): UseOfficeSocketResult {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ agentId, name }),
+      });
+    } catch {
+      // ignore transient network errors
+    }
+  }, []);
+
+  const hideAgent = useCallback(async (agentId: string) => {
+    try {
+      await fetch('/api/agents/hide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId }),
+      });
+    } catch {
+      // ignore transient network errors
+    }
+  }, []);
+
+  const unhideAllAgents = useCallback(async () => {
+    try {
+      await fetch('/api/agents/unhide-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
       });
     } catch {
       // ignore transient network errors
@@ -216,6 +243,8 @@ export function useOfficeSocket(): UseOfficeSocketResult {
     setRecency,
     toggleDemo,
     renameAgent,
+    hideAgent,
+    unhideAllAgents,
     addFloor,
     renameFloor,
     deleteFloor,

@@ -119,6 +119,38 @@ describe('TopBar', () => {
     fireEvent.click(screen.getByRole('button', { name: /Reset Kamera/i }));
     expect(onResetCamera).toHaveBeenCalledTimes(1);
   });
+
+  it('renders Pulihkan N Meja when hiddenCount > 0 and calls onUnhideAll on click', () => {
+    const onUnhideAll = vi.fn();
+
+    render(
+      <TopBar
+        activeCount={1}
+        totalCount={2}
+        connected={true}
+        hookActive={true}
+        demoMode={false}
+        projects={['3D Workspace']}
+        selectedProject="ALL"
+        recency="30m"
+        showLabels={true}
+        hideFinished={false}
+        hiddenCount={2}
+        onSelectProject={vi.fn()}
+        onChangeRecency={vi.fn()}
+        onToggleLabels={vi.fn()}
+        onToggleHideFinished={vi.fn()}
+        onUnhideAll={onUnhideAll}
+        onToggleDemo={vi.fn()}
+        onResetCamera={vi.fn()}
+      />,
+    );
+
+    const restoreBtn = screen.getByRole('button', { name: /Pulihkan meja tersembunyi/i });
+    expect(restoreBtn).toHaveTextContent(/Pulihkan 2 Meja/i);
+    fireEvent.click(restoreBtn);
+    expect(onUnhideAll).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('InspectorDrawer', () => {
@@ -212,6 +244,23 @@ describe('InspectorDrawer', () => {
     const select = screen.getByLabelText(/Lantai Tim/i);
     fireEvent.change(select, { target: { value: 'floor-2' } });
     expect(onMoveTeamFloor).toHaveBeenCalledWith('lead-1', 'floor-2');
+  });
+
+  it('invokes onHideAgent with agent.id when clicking Sembunyikan Meja', () => {
+    const onHideAgent = vi.fn();
+    render(
+      <InspectorDrawer
+        agent={leadAgent}
+        allAgents={{ [leadAgent.id]: leadAgent, [subAgent.id]: subAgent }}
+        onClose={vi.fn()}
+        onFocusAgent={vi.fn()}
+        onHideAgent={onHideAgent}
+      />,
+    );
+
+    const hideBtn = screen.getByRole('button', { name: /Sembunyikan Meja/i });
+    fireEvent.click(hideBtn);
+    expect(onHideAgent).toHaveBeenCalledWith('lead-1');
   });
 });
 

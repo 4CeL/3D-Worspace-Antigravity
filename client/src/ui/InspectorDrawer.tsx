@@ -3,6 +3,7 @@ import {
   Check,
   Clock,
   Copy,
+  EyeOff,
   FileCode2,
   FolderGit2,
   Layers,
@@ -22,6 +23,7 @@ interface InspectorDrawerProps {
   onFocusAgent: (agentId: string) => void;
   onRenameAgent?: (agentId: string, name: string | null) => void;
   onMoveTeamFloor?: (rootId: string, floorId: string) => void;
+  onHideAgent?: (agentId: string) => void;
 }
 
 const STATUS_BADGE: Record<AgentStatus, { label: string; cls: string; dot: string }> = {
@@ -59,6 +61,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
   onFocusAgent,
   onRenameAgent,
   onMoveTeamFloor,
+  onHideAgent,
 }) => {
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [editingName, setEditingName] = useState(false);
@@ -401,6 +404,21 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
           )}
         </section>
       </div>
+
+      {/* Subtle footer action to dismiss/hide desk in 1 click */}
+      {onHideAgent && (
+        <div className="border-t border-stone-100 bg-stone-50/70 px-4 py-2.5">
+          <button
+            type="button"
+            aria-label="Sembunyikan Meja"
+            onClick={() => onHideAgent(agent.id)}
+            className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-stone-200/90 bg-white px-3 py-1.5 text-xs font-medium text-stone-600 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+          >
+            <EyeOff className="h-3.5 w-3.5" />
+            <span>Sembunyikan Meja</span>
+          </button>
+        </div>
+      )}
     </aside>
   );
 };

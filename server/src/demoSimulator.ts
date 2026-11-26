@@ -89,6 +89,7 @@ export class DemoSimulator {
     ['demo-lead-1', 'demo-floor-1'],
     ['demo-lead-2', 'demo-floor-2'],
   ]);
+  private readonly hiddenAgents = new Set<string>();
   private snapshot: OfficeSnapshot;
 
   constructor() {
@@ -166,6 +167,27 @@ export class DemoSimulator {
     }
     this.snapshot = this.buildSnapshot(Date.now());
     return this.snapshot;
+  }
+
+  hideAgent(agentId: string): boolean {
+    const trimmed = typeof agentId === 'string' ? agentId.trim() : '';
+    if (!isSafeObjectKey(trimmed)) return false;
+    if (!this.hiddenAgents.has(trimmed) && this.hiddenAgents.size >= MAX_TEAM_FLOORS) {
+      const oldest = this.hiddenAgents.values().next().value;
+      if (oldest) this.hiddenAgents.delete(oldest);
+    }
+    this.hiddenAgents.add(trimmed);
+    this.snapshot = this.buildSnapshot(Date.now());
+    return true;
+  }
+
+  unhideAllAgents(): number {
+    const prevCount = this.hiddenAgents.size;
+    if (prevCount > 0) {
+      this.hiddenAgents.clear();
+      this.snapshot = this.buildSnapshot(Date.now());
+    }
+    return prevCount;
   }
 
   start(onTick: (snapshot: OfficeSnapshot) => void, intervalMs = 2800): void {
@@ -430,39 +452,70 @@ export class DemoSimulator {
         : this.floors[0].id;
     };
 
-    const clusters: TeamCluster[] = [
+    const allAgents: Record<string, AgentNode> = {
+      [finalLead1.id]: finalLead1,
+      [finalSub1.id]: finalSub1,
+      [finalSub2.id]: finalSub2,
+      [finalLead2.id]: finalLead2,
+    };
+
+    const rawClusters: Array<{
+      rootId: string;
+      projectName: string;
+      workspacePath: string;
+      agentIds: string[];
+      lastUpdatedAt: number;
+    }> = [
       {
         rootId: 'demo-lead-1',
         projectName: '3D Workspace',
         workspacePath: ws1,
-        title: finalLead1.displayName,
-        leadAgentId: 'demo-lead-1',
         agentIds: ['demo-lead-1', 'demo-sub-1', 'demo-sub-2'],
-        floorId: resolveFloor('demo-lead-1'),
         lastUpdatedAt: now,
       },
       {
         rootId: 'demo-lead-2',
         projectName: 'Mobile Commerce',
         workspacePath: ws2,
-        title: finalLead2.displayName,
-        leadAgentId: 'demo-lead-2',
         agentIds: ['demo-lead-2'],
-        floorId: resolveFloor('demo-lead-2'),
         lastUpdatedAt: now - 140_000,
       },
     ];
 
-    const activePulses: ActivePulse[] = phase.pulse
-      ? [
-          {
-            id: `demo-pulse-${this.tickIndex}`,
-            fromAgentId: phase.pulse.from,
-            toAgentId: phase.pulse.to,
-            timestamp: now,
-          },
-        ]
-      : [];
+    const clusters: TeamCluster[] = [];
+    const agents: Record<string, AgentNode> = {};
+    for (const rc of rawClusters) {
+      const visibleIds = rc.agentIds.filter((id) => !this.hiddenAgents.has(id));
+      if (visibleIds.length === 0) continue;
+      const leadId = visibleIds[0];
+      clusters.push({
+        rootId: rc.rootId,
+        projectName: rc.projectName,
+        workspacePath: rc.workspacePath,
+        title: allAgents[leadId].displayName,
+        leadAgentId: leadId,
+        agentIds: visibleIds,
+        floorId: resolveFloor(rc.rootId),
+        lastUpdatedAt: rc.lastUpdatedAt,
+      });
+      for (const id of visibleIds) {
+        agents[id] = allAgents[id];
+      }
+    }
+
+    const activePulses: ActivePulse[] =
+      phase.pulse &&
+      !this.hiddenAgents.has(phase.pulse.from) &&
+      !this.hiddenAgents.has(phase.pulse.to)
+        ? [
+            {
+              id: `demo-pulse-${this.tickIndex}`,
+              fromAgentId: phase.pulse.from,
+              toAgentId: phase.pulse.to,
+              timestamp: now,
+            },
+          ]
+        : [];
 
     return {
       generatedAt: now,
@@ -471,13 +524,9 @@ export class DemoSimulator {
       demoMode: true,
       floors: this.floors.map((f) => ({ ...f })),
       clusters,
-      agents: {
-        [finalLead1.id]: finalLead1,
-        [finalSub1.id]: finalSub1,
-        [finalSub2.id]: finalSub2,
-        [finalLead2.id]: finalLead2,
-      },
+      agents,
       activePulses,
+      hiddenCount: this.hiddenAgents.size,
     };
   }
 }

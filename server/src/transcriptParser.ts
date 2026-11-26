@@ -29,6 +29,7 @@ export interface ParsedTranscriptDelta {
   activities: ActivityEvent[];
   fileTouches: ParsedFileTouch[];
   subagentLinks: ParsedSubagentLink[];
+  failedSubagentIds: string[];
   messagePulses: ParsedMessagePulse[];
   workspacePaths: string[];
   modelName?: string;
@@ -141,6 +142,7 @@ export function parseTranscriptChunk(
     activities: [],
     fileTouches: [],
     subagentLinks: [],
+    failedSubagentIds: [],
     messagePulses: [],
     workspacePaths: [],
   };
@@ -174,6 +176,20 @@ export function parseTranscriptChunk(
 
     if (typeof step.model === 'string' && step.model.trim()) {
       delta.modelName = step.model.trim();
+    }
+
+    if (type === 'SYSTEM_MESSAGE') {
+      if (typeof step.content === 'string') {
+        const failedRe =
+          /with id "([0-9a-fA-F-]+)" encountered an error and has either stopped or failed to start execution/g;
+        for (const match of step.content.matchAll(failedRe)) {
+          const failedId = match[1];
+          if (failedId && !delta.failedSubagentIds.includes(failedId)) {
+            delta.failedSubagentIds.push(failedId);
+          }
+        }
+      }
+      continue;
     }
 
     if (type === 'USER_INPUT') {

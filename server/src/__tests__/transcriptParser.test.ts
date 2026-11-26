@@ -171,6 +171,29 @@ describe('parseTranscriptChunk', () => {
       },
     ]);
   });
+
+  it('extracts deduplicated failedSubagentIds from SYSTEM_MESSAGE subagent error notices', () => {
+    const state = createTranscriptParseState();
+    const chunk = [
+      JSON.stringify({
+        step_index: 20,
+        source: 'SYSTEM',
+        type: 'SYSTEM_MESSAGE',
+        status: 'DONE',
+        created_at: '2026-11-26T05:10:00Z',
+        content:
+          'Subagent with id "aa11bb22-3344-5566-7788-99aabbccddee" encountered an error and has either stopped or failed to start execution.\n' +
+          'Subagent with id "ff00ee11-2233-4455-6677-889900aabbcc" encountered an error and has either stopped or failed to start execution.\n' +
+          'Duplicate notice: with id "aa11bb22-3344-5566-7788-99aabbccddee" encountered an error and has either stopped or failed to start execution.',
+      }),
+    ].join('\n') + '\n';
+
+    const delta = parseTranscriptChunk(state, chunk);
+    expect(delta.failedSubagentIds).toEqual([
+      'aa11bb22-3344-5566-7788-99aabbccddee',
+      'ff00ee11-2233-4455-6677-889900aabbcc',
+    ]);
+  });
 });
 
 describe('TranscriptWatcher', () => {
@@ -223,5 +246,43 @@ describe('TranscriptWatcher', () => {
     const allFiles = deltas.flatMap((d) => d.files);
     expect(allFiles).toContain('first.ts');
     expect(allFiles).toContain('second.ts');
+  });
+
+  it('forwards delta when appended chunk contains only a SYSTEM_MESSAGE failed subagent notice', async () => {
+    const brainDir = makeTempDir();
+    const convId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    const logsDir = path.join(brainDir, convId, '.system_generated', 'logs');
+    fs.mkdirSync(logsDir, { recursive: true });
+    const transcriptPath = path.join(logsDir, 'transcript.jsonl');
+
+    fs.writeFileSync(transcriptPath, '');
+
+    const failedIds: string[] = [];
+    const watcher = new TranscriptWatcher({ brainDir, scanIntervalMs: 80 });
+    watcher.onDelta(({ delta }) => {
+      failedIds.push(...delta.failedSubagentIds);
+    });
+
+    watcher.start();
+    try {
+      await new Promise((r) => setTimeout(r, 120));
+      fs.appendFileSync(
+        transcriptPath,
+        JSON.stringify({
+          step_index: 5,
+          source: 'SYSTEM',
+          type: 'SYSTEM_MESSAGE',
+          status: 'DONE',
+          created_at: new Date().toISOString(),
+          content:
+            'Subagent with id "deadbeef-1111-2222-3333-444455556666" encountered an error and has either stopped or failed to start execution.',
+        }) + '\n',
+      );
+      await new Promise((r) => setTimeout(r, 220));
+    } finally {
+      watcher.stop();
+    }
+
+    expect(failedIds).toEqual(['deadbeef-1111-2222-3333-444455556666']);
   });
 });

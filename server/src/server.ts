@@ -11,7 +11,12 @@ import type {
   ServerMessage,
 } from '@office/shared';
 import { loadAliases, saveAliases } from './aliasStore.js';
-import { isValidFloorTheme, loadBuildingConfig, saveBuildingConfig } from './buildingStore.js';
+import {
+  isSafeObjectKey,
+  isValidFloorTheme,
+  loadBuildingConfig,
+  saveBuildingConfig,
+} from './buildingStore.js';
 import { DemoSimulator } from './demoSimulator.js';
 import { StateStore } from './stateStore.js';
 import { TranscriptWatcher } from './transcriptWatcher.js';
@@ -258,7 +263,22 @@ export async function createOfficeServer(
           return;
         }
         const payload = body as HookEventPayload;
+        const wasHidden =
+          typeof payload.conversationId === 'string' &&
+          stateStore.isAgentHidden(payload.conversationId);
         stateStore.applyHookEvent(payload);
+        if (
+          wasHidden &&
+          options.buildingFilePath &&
+          typeof payload.conversationId === 'string' &&
+          !stateStore.isAgentHidden(payload.conversationId)
+        ) {
+          try {
+            saveBuildingConfig(options.buildingFilePath, stateStore.getBuildingConfig());
+          } catch {
+            // keep hook ingestion fail-open
+          }
+        }
         if (watcher && payload.conversationId) {
           watcher.ensureTracked(payload.conversationId, payload.transcriptPath);
         }
@@ -402,6 +422,37 @@ export async function createOfficeServer(
       }
       if (!persistBuildingOrFail()) return;
       sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/agents/hide') {
+      const body = await requireJsonObjectBody();
+      if (!body) return;
+      const agentId = typeof body.agentId === 'string' ? body.agentId.trim() : '';
+      if (!isSafeObjectKey(agentId)) {
+        sendJson(res, 400, { ok: false, error: 'Invalid agentId' });
+        return;
+      }
+      const ok = demoMode
+        ? demoSimulator.hideAgent(agentId)
+        : stateStore.hideAgent(agentId);
+      if (!ok) {
+        sendJson(res, 400, { ok: false, error: 'Invalid agentId' });
+        return;
+      }
+      if (!persistBuildingOrFail()) return;
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/agents/unhide-all') {
+      const body = await requireJsonObjectBody();
+      if (!body) return;
+      const restored = demoMode
+        ? demoSimulator.unhideAllAgents()
+        : stateStore.unhideAllAgents();
+      if (!persistBuildingOrFail()) return;
+      sendJson(res, 200, { ok: true, restored });
       return;
     }
 

@@ -121,6 +121,8 @@ export class StateStore {
   private readonly customAliases = new Map<string, string>();
   private readonly floors: FloorConfig[] = [];
   private readonly teamFloors = new Map<string, string>();
+  private readonly failedGhostIds = new Set<string>();
+  private readonly hiddenAgents = new Set<string>();
   private readonly recentDedup = new Map<string, { timestamp: number; source: 'hook' | 'transcript' }>();
   private readonly seenToolCallIds = new Set<string>();
   private readonly pulses: ActivePulse[] = [];
@@ -144,6 +146,13 @@ export class StateStore {
     this.floors.push(...building.floors);
     for (const [rootId, floorId] of Object.entries(building.teamFloors)) {
       this.teamFloors.set(rootId, floorId);
+    }
+    if (Array.isArray(building.hiddenAgents)) {
+      for (const agentId of building.hiddenAgents) {
+        if (isSafeObjectKey(agentId)) {
+          this.hiddenAgents.add(agentId);
+        }
+      }
     }
   }
 
@@ -211,6 +220,32 @@ export class StateStore {
     return true;
   }
 
+  isAgentHidden(agentId: string): boolean {
+    const trimmed = typeof agentId === 'string' ? agentId.trim() : '';
+    return trimmed.length > 0 && this.hiddenAgents.has(trimmed);
+  }
+
+  hideAgent(agentId: string): boolean {
+    const trimmed = typeof agentId === 'string' ? agentId.trim() : '';
+    if (!isSafeObjectKey(trimmed)) return false;
+    if (!this.hiddenAgents.has(trimmed) && this.hiddenAgents.size >= MAX_TEAM_FLOORS) {
+      const oldest = this.hiddenAgents.values().next().value;
+      if (oldest) this.hiddenAgents.delete(oldest);
+    }
+    this.hiddenAgents.add(trimmed);
+    this.emitChange();
+    return true;
+  }
+
+  unhideAllAgents(): number {
+    const prevCount = this.hiddenAgents.size;
+    if (prevCount > 0) {
+      this.hiddenAgents.clear();
+      this.emitChange();
+    }
+    return prevCount;
+  }
+
   getBuildingConfig(): BuildingConfig {
     const teamFloors: Record<string, string> = {};
     for (const [k, v] of this.teamFloors.entries()) {
@@ -221,6 +256,7 @@ export class StateStore {
     return {
       floors: this.floors.map((f) => ({ ...f })),
       teamFloors,
+      hiddenAgents: Array.from(this.hiddenAgents),
     };
   }
 
@@ -487,6 +523,11 @@ export class StateStore {
 
     const eventName = payload.hookEventName;
 
+    if (eventName === 'PreInvocation' || eventName === 'PreToolUse') {
+      this.failedGhostIds.delete(agent.id);
+      this.hiddenAgents.delete(agent.id);
+    }
+
     if (eventName === 'SessionStart' || eventName === 'PreInvocation') {
       agent.status = 'thinking';
       agent.errorMessage = undefined;
@@ -630,6 +671,14 @@ export class StateStore {
       );
     }
 
+    if (Array.isArray(delta.failedSubagentIds)) {
+      for (const failedId of delta.failedSubagentIds) {
+        if (typeof failedId === 'string' && failedId.trim()) {
+          this.failedGhostIds.add(failedId.trim());
+        }
+      }
+    }
+
     // Only override status from transcript if hook hasn't updated more recently
     if (delta.lastStatus && (!agent.lastHookAt || ts >= agent.lastHookAt)) {
       agent.status = delta.lastStatus;
@@ -708,12 +757,6 @@ export class StateStore {
     const agentsOut: Record<string, AgentNode> = {};
 
     for (const [rootId, members] of clusterMembers.entries()) {
-      const hasActive = members.some((m) => m.status !== 'idle');
-      const clusterUpdatedAt = Math.max(...members.map((m) => m.lastUpdatedAt));
-      if (!hasActive && clusterUpdatedAt < cutoff) {
-        continue;
-      }
-
       // Sort: lead first, then subagents by createdAt
       members.sort((a, b) => {
         if (a.id === rootId) return -1;
@@ -721,12 +764,45 @@ export class StateStore {
         return a.createdAt - b.createdAt;
       });
 
-      const lead = members[0];
+      const visibleMembers = members.filter((m) => {
+        const isSubagent = m.id !== rootId || Boolean(m.parentId);
+        if (this.hiddenAgents.has(m.id)) return false;
+        if (this.failedGhostIds.has(m.id) && m.files.size === 0 && m.recentActivity.length === 0) {
+          return false;
+        }
+        if (
+          isSubagent &&
+          m.status === 'idle' &&
+          m.files.size === 0 &&
+          m.recentActivity.length === 0 &&
+          !m.lastHookAt &&
+          now - m.createdAt > 15_000
+        ) {
+          return false;
+        }
+        return true;
+      });
+
+      if (visibleMembers.length === 0) {
+        continue;
+      }
+
+      const hasActive = visibleMembers.some((m) => m.status !== 'idle');
+      const clusterUpdatedAt = Math.max(...visibleMembers.map((m) => m.lastUpdatedAt));
+      if (!hasActive && clusterUpdatedAt < cutoff) {
+        continue;
+      }
+
+      const lead = visibleMembers[0];
       const leadAlias = this.customAliases.get(lead.id);
       const projectName =
-        members.find((m) => m.projectName !== 'Antigravity')?.projectName || lead.projectName;
+        visibleMembers.find((m) => m.projectName !== 'Antigravity')?.projectName ||
+        members.find((m) => m.projectName !== 'Antigravity')?.projectName ||
+        lead.projectName;
       const workspacePath =
-        members.find((m) => m.workspacePath)?.workspacePath || lead.workspacePath;
+        visibleMembers.find((m) => m.workspacePath)?.workspacePath ||
+        members.find((m) => m.workspacePath)?.workspacePath ||
+        lead.workspacePath;
 
       const assignedFloorId = this.teamFloors.get(rootId);
       const validFloorId =
@@ -740,12 +816,12 @@ export class StateStore {
         workspacePath,
         title: leadAlias || lead.displayName,
         leadAgentId: lead.id,
-        agentIds: members.map((m) => m.id),
+        agentIds: visibleMembers.map((m) => m.id),
         floorId: validFloorId,
         lastUpdatedAt: clusterUpdatedAt,
       });
 
-      for (const m of members) {
+      for (const m of visibleMembers) {
         const sortedFiles = Array.from(m.files.values()).sort(
           (a, b) => b.lastTouchedAt - a.lastTouchedAt,
         );
@@ -778,7 +854,12 @@ export class StateStore {
 
     clusters.sort((a, b) => b.lastUpdatedAt - a.lastUpdatedAt);
 
-    const activePulses = this.pulses.filter((p) => now - p.timestamp <= PULSE_TTL_MS);
+    const activePulses = this.pulses.filter(
+      (p) =>
+        now - p.timestamp <= PULSE_TTL_MS &&
+        !this.hiddenAgents.has(p.fromAgentId) &&
+        !this.hiddenAgents.has(p.toAgentId),
+    );
 
     return {
       generatedAt: now,
@@ -789,6 +870,7 @@ export class StateStore {
       clusters,
       agents: agentsOut,
       activePulses,
+      hiddenCount: this.hiddenAgents.size,
     };
   }
 }

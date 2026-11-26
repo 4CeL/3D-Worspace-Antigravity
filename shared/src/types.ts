@@ -71,6 +71,7 @@ export interface FloorConfig {
 export interface BuildingConfig {
   floors: FloorConfig[];
   teamFloors: Record<string, string>;
+  hiddenAgents?: string[];
 }
 
 export interface TeamCluster {
@@ -100,6 +101,7 @@ export interface OfficeSnapshot {
   clusters: TeamCluster[];
   agents: Record<string, AgentNode>;
   activePulses: ActivePulse[];
+  hiddenCount?: number;
 }
 
 export interface HookEventPayload {

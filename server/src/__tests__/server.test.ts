@@ -423,4 +423,97 @@ describe('createOfficeServer', () => {
       await office.close();
     }
   });
+
+  it('hides agents via POST /api/agents/hide with persistence across restarts, restores via POST /api/agents/unhide-all, and rejects invalid agentIds with 400', async () => {
+    const brainDir = makeTempDir();
+    const buildingFilePath = path.join(makeTempDir(), 'building-config.json');
+    const office1 = await createOfficeServer({
+      port: 0,
+      host: '127.0.0.1',
+      brainDir,
+      buildingFilePath,
+    });
+
+    try {
+      await fetch(`http://127.0.0.1:${office1.port}/api/hook-event`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hookEventName: 'SessionStart',
+          conversationId: 'agent-hide-1',
+          workspacePaths: ['D:\\Projects\\HideApp'],
+        }),
+      });
+
+      // Invalid / forbidden agentIds -> 400
+      const protoRes = await fetch(`http://127.0.0.1:${office1.port}/api/agents/hide`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: '__proto__' }),
+      });
+      expect(protoRes.status).toBe(400);
+
+      const emptyRes = await fetch(`http://127.0.0.1:${office1.port}/api/agents/hide`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: '   ' }),
+      });
+      expect(emptyRes.status).toBe(400);
+
+      // Valid hide -> 200
+      const hideRes = await fetch(`http://127.0.0.1:${office1.port}/api/agents/hide`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: 'agent-hide-1' }),
+      });
+      expect(hideRes.status).toBe(200);
+      expect(await hideRes.json()).toEqual({ ok: true });
+
+      const snap1Res = await fetch(`http://127.0.0.1:${office1.port}/api/snapshot`);
+      const snap1 = await snap1Res.json();
+      expect(snap1.hiddenCount).toBe(1);
+      expect(snap1.agents['agent-hide-1']).toBeUndefined();
+    } finally {
+      await office1.close();
+    }
+
+    // Restart server -> hidden agent remains hidden and can be restored via /api/agents/unhide-all
+    const office2 = await createOfficeServer({
+      port: 0,
+      host: '127.0.0.1',
+      brainDir,
+      buildingFilePath,
+    });
+    try {
+      await fetch(`http://127.0.0.1:${office2.port}/api/hook-event`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hookEventName: 'SessionStart',
+          conversationId: 'agent-hide-1',
+          workspacePaths: ['D:\\Projects\\HideApp'],
+        }),
+      });
+
+      const snapHiddenRes = await fetch(`http://127.0.0.1:${office2.port}/api/snapshot`);
+      const snapHidden = await snapHiddenRes.json();
+      expect(snapHidden.hiddenCount).toBe(1);
+      expect(snapHidden.agents['agent-hide-1']).toBeUndefined();
+
+      const unhideRes = await fetch(`http://127.0.0.1:${office2.port}/api/agents/unhide-all`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(unhideRes.status).toBe(200);
+      expect(await unhideRes.json()).toEqual({ ok: true, restored: 1 });
+
+      const snapRestoredRes = await fetch(`http://127.0.0.1:${office2.port}/api/snapshot`);
+      const snapRestored = await snapRestoredRes.json();
+      expect(snapRestored.hiddenCount).toBe(0);
+      expect(snapRestored.agents['agent-hide-1']).toBeDefined();
+    } finally {
+      await office2.close();
+    }
+  });
 });

@@ -32,6 +32,7 @@ export function createDefaultBuildingConfig(): BuildingConfig {
   return {
     floors: [{ id: DEFAULT_FLOOR_ID, index: 1, name: 'Lantai 1', theme: 'engineering' }],
     teamFloors: {},
+    hiddenAgents: [],
   };
 }
 
@@ -39,7 +40,7 @@ export function normalizeBuildingConfig(raw: unknown): BuildingConfig {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return createDefaultBuildingConfig();
   }
-  const obj = raw as { floors?: unknown; teamFloors?: unknown };
+  const obj = raw as { floors?: unknown; teamFloors?: unknown; hiddenAgents?: unknown };
   const rawFloors = Array.isArray(obj.floors) ? obj.floors : [];
 
   const seenIds = new Set<string>();
@@ -78,7 +79,20 @@ export function normalizeBuildingConfig(raw: unknown): BuildingConfig {
     }
   }
 
-  return { floors, teamFloors: { ...teamFloors } };
+  const hiddenAgents: string[] = [];
+  const seenHidden = new Set<string>();
+  if (Array.isArray(obj.hiddenAgents)) {
+    for (const entry of obj.hiddenAgents) {
+      if (hiddenAgents.length >= MAX_TEAM_FLOORS) break;
+      const cleanId = typeof entry === 'string' ? entry.trim() : '';
+      if (isSafeObjectKey(cleanId) && !seenHidden.has(cleanId)) {
+        seenHidden.add(cleanId);
+        hiddenAgents.push(cleanId);
+      }
+    }
+  }
+
+  return { floors, teamFloors: { ...teamFloors }, hiddenAgents };
 }
 
 export function loadBuildingConfig(filePath: string): BuildingConfig {

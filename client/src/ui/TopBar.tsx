@@ -23,10 +23,12 @@ interface TopBarProps {
   recency: RecencyWindow;
   showLabels: boolean;
   hideFinished: boolean;
+  hiddenCount?: number;
   onSelectProject: (project: string) => void;
   onChangeRecency: (recency: RecencyWindow) => void;
   onToggleLabels: () => void;
   onToggleHideFinished: () => void;
+  onUnhideAll?: () => void;
   onToggleDemo: () => void;
   onResetCamera: () => void;
 }
@@ -48,10 +50,12 @@ export const TopBar: React.FC<TopBarProps> = ({
   recency,
   showLabels,
   hideFinished,
+  hiddenCount = 0,
   onSelectProject,
   onChangeRecency,
   onToggleLabels,
   onToggleHideFinished,
+  onUnhideAll,
   onToggleDemo,
   onResetCamera,
 }) => {
@@ -169,6 +173,18 @@ export const TopBar: React.FC<TopBarProps> = ({
           {hideFinished ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
           <span>Sembunyikan Selesai</span>
         </button>
+
+        {hiddenCount > 0 && onUnhideAll && (
+          <button
+            type="button"
+            aria-label="Pulihkan meja tersembunyi"
+            onClick={onUnhideAll}
+            className="flex items-center gap-1.5 rounded-xl border border-amber-200/90 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
+          >
+            <Eye className="h-3.5 w-3.5" />
+            <span>Pulihkan {hiddenCount} Meja</span>
+          </button>
+        )}
 
         <button
           type="button"

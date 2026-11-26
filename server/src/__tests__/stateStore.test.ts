@@ -18,6 +18,7 @@ function emptyDelta(overrides: Partial<ParsedTranscriptDelta> = {}): ParsedTrans
     activities: [],
     fileTouches: [],
     subagentLinks: [],
+    failedSubagentIds: [],
     messagePulses: [],
     workspacePaths: [],
     ...overrides,
@@ -469,6 +470,149 @@ describe('StateStore', () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it('suppresses failed-start ghost subagents and empty spawn stubs while keeping subagents that did real work', () => {
+    const store = new StateStore();
+    const t0 = 1_700_000_000_000;
+
+    store.applyHookEvent(
+      { hookEventName: 'SessionStart', conversationId: 'lead-1', workspacePaths: ['D:\\Proj'] },
+      t0,
+    );
+    store.applyTranscriptDelta(
+      'lead-1',
+      emptyDelta({
+        subagentLinks: [
+          { childConversationId: 'ghost-failed', role: 'Ghost Failed', workspacePaths: ['D:\\Proj'], timestamp: t0 + 100 },
+          { childConversationId: 'worked-then-failed', role: 'Worked Sub', workspacePaths: ['D:\\Proj'], timestamp: t0 + 100 },
+          { childConversationId: 'empty-stub', role: 'Empty Stub', workspacePaths: ['D:\\Proj'], timestamp: t0 + 100 },
+        ],
+        failedSubagentIds: ['ghost-failed', 'worked-then-failed'],
+        lastTimestamp: t0 + 100,
+      }),
+      t0 + 100,
+    );
+
+    // worked-then-failed actually touched a file before failing -> must remain visible
+    store.applyTranscriptDelta(
+      'worked-then-failed',
+      emptyDelta({
+        fileTouches: [{ path: 'D:\\Proj\\src\\a.ts', fileName: 'a.ts', action: 'read', timestamp: t0 + 200 }],
+        activities: [
+          {
+            id: 'tr-1-0-read_file',
+            timestamp: t0 + 200,
+            toolName: 'read_file',
+            status: 'reading',
+            summary: 'Membaca a.ts',
+            targetPath: 'D:\\Proj\\src\\a.ts',
+            fileAction: 'read',
+          },
+        ],
+        lastStatus: 'idle',
+        lastTimestamp: t0 + 200,
+      }),
+      t0 + 200,
+    );
+
+    // Within 15s: ghost-failed is suppressed immediately, empty-stub still within grace window, worked-then-failed visible
+    const snapEarly = store.getSnapshot({ now: t0 + 5_000 });
+    expect(snapEarly.agents['ghost-failed']).toBeUndefined();
+    expect(snapEarly.agents['worked-then-failed']).toBeDefined();
+    expect(snapEarly.agents['empty-stub']).toBeDefined();
+
+    // After >15s: empty-stub with 0 files/0 activity/no hooks is suppressed
+    const snapLate = store.getSnapshot({ now: t0 + 20_000 });
+    expect(snapLate.agents['ghost-failed']).toBeUndefined();
+    expect(snapLate.agents['empty-stub']).toBeUndefined();
+    expect(snapLate.agents['worked-then-failed']).toBeDefined();
+    expect(snapLate.clusters[0].agentIds).toEqual(['lead-1', 'worked-then-failed']);
+  });
+
+  it('supports hideAgent, unhideAllAgents, lead promotion, cluster dropping, and auto-unhiding on live PreToolUse hook', () => {
+    const store = new StateStore();
+    const t0 = 1_700_000_000_000;
+
+    store.applyHookEvent(
+      { hookEventName: 'SessionStart', conversationId: 'lead-1', workspacePaths: ['D:\\Proj'] },
+      t0,
+    );
+    store.applyTranscriptDelta(
+      'lead-1',
+      emptyDelta({
+        subagentLinks: [
+          { childConversationId: 'sub-1', role: 'Backend Dev', workspacePaths: ['D:\\Proj'], timestamp: t0 + 50 },
+        ],
+        lastTimestamp: t0 + 50,
+      }),
+      t0 + 50,
+    );
+    store.applyHookEvent(
+      {
+        hookEventName: 'PreToolUse',
+        conversationId: 'sub-1',
+        toolCall: { id: 't1', name: 'read_file', args: { Path: 'D:\\Proj\\a.ts' } },
+      },
+      t0 + 100,
+    );
+
+    // Rejects invalid / prototype-pollution agentId
+    expect(store.hideAgent('')).toBe(false);
+    expect(store.hideAgent('__proto__')).toBe(false);
+
+    // Hiding lead-1 promotes sub-1 as leadAgentId
+    expect(store.hideAgent('lead-1')).toBe(true);
+    const snapPromoted = store.getSnapshot({ now: t0 + 200 });
+    expect(snapPromoted.hiddenCount).toBe(1);
+    expect(snapPromoted.agents['lead-1']).toBeUndefined();
+    expect(snapPromoted.clusters).toHaveLength(1);
+    expect(snapPromoted.clusters[0].leadAgentId).toBe('sub-1');
+    expect(snapPromoted.clusters[0].agentIds).toEqual(['sub-1']);
+    expect(store.getBuildingConfig().hiddenAgents).toEqual(['lead-1']);
+
+    // Hiding sub-1 too drops the cluster completely
+    expect(store.hideAgent('sub-1')).toBe(true);
+    const snapEmpty = store.getSnapshot({ now: t0 + 300 });
+    expect(snapEmpty.hiddenCount).toBe(2);
+    expect(snapEmpty.clusters).toHaveLength(0);
+    expect(Object.keys(snapEmpty.agents)).toHaveLength(0);
+
+    // Receiving a live PreToolUse hook auto-unhides lead-1
+    expect(store.isAgentHidden('lead-1')).toBe(true);
+    store.applyHookEvent(
+      {
+        hookEventName: 'PreToolUse',
+        conversationId: 'lead-1',
+        toolCall: { id: 't2', name: 'edit_file', args: { Path: 'D:\\Proj\\b.ts' } },
+      },
+      t0 + 400,
+    );
+    expect(store.isAgentHidden('lead-1')).toBe(false);
+    const snapWoken = store.getSnapshot({ now: t0 + 500 });
+    expect(snapWoken.hiddenCount).toBe(1);
+    expect(snapWoken.agents['lead-1']).toBeDefined();
+    expect(snapWoken.agents['sub-1']).toBeUndefined();
+
+    // Pulses targeting a hidden agent are excluded from activePulses
+    store.applyHookEvent(
+      {
+        hookEventName: 'PreToolUse',
+        conversationId: 'lead-1',
+        toolCall: { id: 'm1', name: 'send_message', args: { Recipient: 'sub-1', Message: 'ping' } },
+      },
+      t0 + 550,
+    );
+    expect(store.getSnapshot({ now: t0 + 560 }).activePulses).toHaveLength(0);
+
+    // unhideAllAgents restores remaining hidden agents and returns previous count
+    expect(store.unhideAllAgents()).toBe(1);
+    expect(store.unhideAllAgents()).toBe(0);
+    const snapRestored = store.getSnapshot({ now: t0 + 600 });
+    expect(snapRestored.hiddenCount).toBe(0);
+    expect(snapRestored.agents['lead-1']).toBeDefined();
+    expect(snapRestored.agents['sub-1']).toBeDefined();
+    expect(snapRestored.activePulses).toHaveLength(2);
+  });
 });
 
 describe('DemoSimulator', () => {
@@ -496,6 +640,26 @@ describe('DemoSimulator', () => {
       { id: 'demo-floor-1', index: 1, theme: 'lobby' },
       { id: added!.id, index: 2, theme: 'pantry' },
     ]);
+
+    // Hiding lead promotes remaining subagents, hiding all drops clusters, and unhideAll restores everything
+    expect(sim.hideAgent('__proto__')).toBe(false);
+    expect(sim.hideAgent('demo-lead-1')).toBe(true);
+    const afterLeadHide = sim.getSnapshot();
+    expect(afterLeadHide.hiddenCount).toBe(1);
+    expect(afterLeadHide.agents['demo-lead-1']).toBeUndefined();
+    expect(afterLeadHide.clusters.find((c) => c.rootId === 'demo-lead-1')).toMatchObject({
+      leadAgentId: 'demo-sub-1',
+      agentIds: ['demo-sub-1', 'demo-sub-2'],
+    });
+    expect(sim.hideAgent('demo-sub-1')).toBe(true);
+    expect(sim.hideAgent('demo-sub-2')).toBe(true);
+    expect(sim.hideAgent('demo-lead-2')).toBe(true);
+    expect(sim.getSnapshot().clusters).toHaveLength(0);
+    expect(sim.getSnapshot().hiddenCount).toBe(4);
+    expect(sim.unhideAllAgents()).toBe(4);
+    expect(sim.getSnapshot().hiddenCount).toBe(0);
+    expect(sim.getSnapshot().clusters).toHaveLength(2);
+    expect(sim.getSnapshot().agents['demo-lead-1']).toBeDefined();
 
     const snap2 = sim.step();
     expect(snap2.generatedAt).toBeGreaterThanOrEqual(snap1.generatedAt);
