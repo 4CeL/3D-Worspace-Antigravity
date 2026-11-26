@@ -296,6 +296,44 @@ describe('StateStore', () => {
     );
     expect(store.getSnapshot({ now: t0 + 500 }).agents['c1'].currentFile).toBeUndefined();
   });
+
+  it('supports renaming main agents and subagents with setAgentAlias and resetting back to default', () => {
+    const store = new StateStore();
+    const t0 = 1_700_000_000_000;
+
+    store.applyHookEvent(
+      { hookEventName: 'SessionStart', conversationId: 'lead-1', lastUserInput: 'Haloo' },
+      t0,
+    );
+    store.applyTranscriptDelta(
+      'lead-1',
+      emptyDelta({
+        subagentLinks: [
+          { childConversationId: 'sub-1', role: 'Codebase Researcher', workspacePaths: [], timestamp: t0 + 50 },
+        ],
+        lastTimestamp: t0 + 50,
+      }),
+      t0 + 50,
+    );
+
+    expect(store.getSnapshot({ now: t0 + 100 }).agents['lead-1'].displayName).toBe('Haloo');
+    expect(store.getSnapshot({ now: t0 + 100 }).agents['sub-1'].displayName).toBe('Codebase Researcher');
+
+    store.setAgentAlias('lead-1', 'Arsitek 3D');
+    store.setAgentAlias('sub-1', 'Riset API');
+
+    const renamed = store.getSnapshot({ now: t0 + 200 });
+    expect(renamed.agents['lead-1']).toMatchObject({ displayName: 'Arsitek 3D', hasCustomAlias: true });
+    expect(renamed.agents['sub-1']).toMatchObject({ displayName: 'Riset API', hasCustomAlias: true });
+    expect(renamed.clusters[0].title).toBe('Arsitek 3D');
+
+    // Resetting alias restores original automatic names
+    store.setAgentAlias('lead-1', null);
+    store.setAgentAlias('sub-1', '');
+    const restored = store.getSnapshot({ now: t0 + 300 });
+    expect(restored.agents['lead-1']).toMatchObject({ displayName: 'Haloo', hasCustomAlias: false });
+    expect(restored.agents['sub-1']).toMatchObject({ displayName: 'Codebase Researcher', hasCustomAlias: false });
+  });
 });
 
 describe('DemoSimulator', () => {

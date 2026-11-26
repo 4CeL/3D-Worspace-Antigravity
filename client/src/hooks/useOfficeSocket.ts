@@ -22,6 +22,7 @@ export interface UseOfficeSocketResult {
   recency: RecencyWindow;
   setRecency: (next: RecencyWindow) => void;
   toggleDemo: (enabled: boolean) => Promise<void>;
+  renameAgent: (agentId: string, name: string | null) => Promise<void>;
 }
 
 export function useOfficeSocket(): UseOfficeSocketResult {
@@ -56,6 +57,18 @@ export function useOfficeSocket(): UseOfficeSocketResult {
       });
     } catch {
       // ignore transient network errors; WS reconnect will sync
+    }
+  }, []);
+
+  const renameAgent = useCallback(async (agentId: string, name: string | null) => {
+    try {
+      await fetch('/api/agent-alias', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, name }),
+      });
+    } catch {
+      // ignore transient network errors
     }
   }, []);
 
@@ -132,5 +145,6 @@ export function useOfficeSocket(): UseOfficeSocketResult {
     recency,
     setRecency,
     toggleDemo,
+    renameAgent,
   };
 }

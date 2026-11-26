@@ -157,6 +157,39 @@ describe('InspectorDrawer', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it('supports inline renaming of an agent and cancels edit on Escape without closing drawer', () => {
+    const onClose = vi.fn();
+    const onRenameAgent = vi.fn();
+
+    render(
+      <InspectorDrawer
+        agent={{ ...leadAgent, hasCustomAlias: true }}
+        allAgents={{ [leadAgent.id]: leadAgent, [subAgent.id]: subAgent }}
+        onClose={onClose}
+        onFocusAgent={vi.fn()}
+        onRenameAgent={onRenameAgent}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Ganti nama agent/i }));
+    const input = screen.getByLabelText(/Nama agent baru/i);
+    fireEvent.change(input, { target: { value: 'Arsitek Utama' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    // Escape cancels editing without closing the inspector drawer
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Rename and submit via Enter
+    fireEvent.click(screen.getByRole('button', { name: /Ganti nama agent/i }));
+    const input2 = screen.getByLabelText(/Nama agent baru/i);
+    fireEvent.change(input2, { target: { value: 'Arsitek Utama' } });
+    fireEvent.keyDown(input2, { key: 'Enter' });
+    expect(onRenameAgent).toHaveBeenCalledWith('lead-1', 'Arsitek Utama');
+
+    // Reset button clears custom alias
+    fireEvent.click(screen.getByRole('button', { name: /Reset nama/i }));
+    expect(onRenameAgent).toHaveBeenCalledWith('lead-1', null);
+  });
 });
 
 describe('useOfficeSocket StrictMode guard', () => {

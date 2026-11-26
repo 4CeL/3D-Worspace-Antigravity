@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .superpowers/
+server/data/
 *.bak
 .DS_Store
 *.log

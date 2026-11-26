@@ -164,4 +164,69 @@ describe('createOfficeServer', () => {
       await office.close();
     }
   });
+
+  it('renames agents via POST /api/agent-alias, broadcasts over WS, and persists aliases across restarts', async () => {
+    const brainDir = makeTempDir();
+    const aliasFilePath = path.join(makeTempDir(), 'agent-aliases.json');
+    const office1 = await createOfficeServer({ port: 0, host: '127.0.0.1', brainDir, aliasFilePath });
+    const ws = new WebSocket(`ws://127.0.0.1:${office1.port}/ws`);
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        ws.once('open', resolve);
+        ws.once('error', reject);
+      });
+
+      await fetch(`http://127.0.0.1:${office1.port}/api/hook-event`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hookEventName: 'SessionStart',
+          conversationId: 'conv-rename-1',
+          lastUserInput: 'Haloo',
+        }),
+      });
+
+      const renamedPromise = waitForMessage(
+        ws,
+        (m) => m.type === 'snapshot' && m.payload.agents['conv-rename-1']?.displayName === 'Lead Frontend',
+      );
+
+      const renameRes = await fetch(`http://127.0.0.1:${office1.port}/api/agent-alias`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: 'conv-rename-1', name: 'Lead Frontend' }),
+      });
+      expect(renameRes.status).toBe(200);
+
+      const msg = await renamedPromise;
+      if (msg.type === 'snapshot') {
+        expect(msg.payload.agents['conv-rename-1'].hasCustomAlias).toBe(true);
+      }
+    } finally {
+      ws.close();
+      await office1.close();
+    }
+
+    // Restart server with the same aliasFilePath -> alias should still apply
+    const office2 = await createOfficeServer({ port: 0, host: '127.0.0.1', brainDir, aliasFilePath });
+    try {
+      await fetch(`http://127.0.0.1:${office2.port}/api/hook-event`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hookEventName: 'SessionStart',
+          conversationId: 'conv-rename-1',
+          lastUserInput: 'Haloo',
+        }),
+      });
+
+      const snapRes = await fetch(`http://127.0.0.1:${office2.port}/api/snapshot`);
+      const snap = await snapRes.json();
+      expect(snap.agents['conv-rename-1'].displayName).toBe('Lead Frontend');
+      expect(snap.agents['conv-rename-1'].hasCustomAlias).toBe(true);
+    } finally {
+      await office2.close();
+    }
+  });
 });

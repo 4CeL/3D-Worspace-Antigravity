@@ -205,7 +205,7 @@ export const AgentDesk: React.FC<AgentDeskProps> = ({
                 style={{ backgroundColor: style.dot }}
               />
               <span className="truncate text-[11px] font-semibold text-stone-800">
-                {shortText(agent.isSubagent ? agent.role : agent.displayName, 20)}
+                {shortText(agent.displayName || agent.role, 20)}
               </span>
             </div>
             <div className="w-full truncate font-mono text-[10px] text-stone-500">

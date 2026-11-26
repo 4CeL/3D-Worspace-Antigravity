@@ -9,6 +9,7 @@ import type {
   RecencyWindow,
   ServerMessage,
 } from '@office/shared';
+import { loadAliases, saveAliases } from './aliasStore.js';
 import { DemoSimulator } from './demoSimulator.js';
 import { StateStore } from './stateStore.js';
 import { TranscriptWatcher } from './transcriptWatcher.js';
@@ -18,6 +19,7 @@ export interface OfficeServerOptions {
   host?: string;
   brainDir?: string;
   staticDir?: string;
+  aliasFilePath?: string;
 }
 
 export interface RunningOfficeServer {
@@ -94,7 +96,8 @@ export async function createOfficeServer(
 ): Promise<RunningOfficeServer> {
   const host = options.host ?? '127.0.0.1';
   const requestedPort = options.port ?? Number(process.env.OFFICE_PORT || 4174);
-  const stateStore = new StateStore();
+  const initialAliases = options.aliasFilePath ? loadAliases(options.aliasFilePath) : {};
+  const stateStore = new StateStore({ initialAliases });
   const demoSimulator = new DemoSimulator();
   const watcher = options.brainDir ? new TranscriptWatcher({ brainDir: options.brainDir }) : null;
 
@@ -202,6 +205,38 @@ export async function createOfficeServer(
         const body = (await readJsonBody(req)) as { enabled?: boolean };
         setDemoMode(Boolean(body?.enabled));
         sendJson(res, 200, { ok: true, demoMode });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Bad request';
+        sendJson(res, 400, { ok: false, error: msg });
+      }
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/agent-alias') {
+      try {
+        const body = (await readJsonBody(req)) as { agentId?: unknown; name?: unknown };
+        const agentId = typeof body?.agentId === 'string' ? body.agentId.trim() : '';
+        if (!agentId) {
+          sendJson(res, 400, { ok: false, error: 'agentId is required' });
+          return;
+        }
+        const name =
+          body?.name === null || body?.name === undefined
+            ? null
+            : typeof body.name === 'string'
+              ? body.name
+              : null;
+
+        if (demoMode && agentId.startsWith('demo-')) {
+          demoSimulator.setAgentAlias(agentId, name);
+          broadcastSnapshots();
+        } else {
+          stateStore.setAgentAlias(agentId, name);
+          if (options.aliasFilePath) {
+            saveAliases(options.aliasFilePath, stateStore.getAliases());
+          }
+        }
+        sendJson(res, 200, { ok: true });
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Bad request';
         sendJson(res, 400, { ok: false, error: msg });

@@ -37,6 +37,7 @@ export interface AgentNode {
   rootId: string;
   isSubagent: boolean;
   displayName: string;
+  hasCustomAlias?: boolean;
   role: string;
   typeName?: string;
   modelName?: string;

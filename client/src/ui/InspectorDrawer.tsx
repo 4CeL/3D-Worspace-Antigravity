@@ -5,6 +5,8 @@ import {
   Copy,
   FileCode2,
   FolderGit2,
+  Pencil,
+  RotateCcw,
   Users,
   X,
 } from 'lucide-react';
@@ -15,6 +17,7 @@ interface InspectorDrawerProps {
   allAgents: Record<string, AgentNode>;
   onClose: () => void;
   onFocusAgent: (agentId: string) => void;
+  onRenameAgent?: (agentId: string, name: string | null) => void;
 }
 
 const STATUS_BADGE: Record<AgentStatus, { label: string; cls: string; dot: string }> = {
@@ -48,25 +51,45 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
   allAgents,
   onClose,
   onFocusAgent,
+  onRenameAgent,
 }) => {
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [draftName, setDraftName] = useState('');
+
+  useEffect(() => {
+    setEditingName(false);
+    setDraftName(agent?.displayName ?? '');
+  }, [agent?.id]);
 
   useEffect(() => {
     if (!agent) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (editingName) {
+          setEditingName(false);
+          return;
+        }
         onClose();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [agent, onClose]);
+  }, [agent, editingName, onClose]);
 
   if (!agent) return null;
 
   const badge = STATUS_BADGE[agent.status];
   const parentAgent = agent.parentId ? allAgents[agent.parentId] : null;
   const childAgents = Object.values(allAgents).filter((a) => a.parentId === agent.id);
+
+  const commitRename = () => {
+    const trimmed = draftName.trim();
+    if (trimmed && trimmed !== agent.displayName) {
+      onRenameAgent?.(agent.id, trimmed);
+    }
+    setEditingName(false);
+  };
 
   const handleCopy = async (fullPath: string) => {
     try {
@@ -99,9 +122,80 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                 </span>
               )}
             </div>
-            <h2 className="mt-1 truncate text-base font-bold text-stone-800">
-              {agent.displayName}
-            </h2>
+            {editingName ? (
+              <div className="mt-1.5 flex items-center gap-1">
+                <input
+                  type="text"
+                  aria-label="Nama agent baru"
+                  autoFocus
+                  maxLength={60}
+                  value={draftName}
+                  onChange={(e) => setDraftName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      commitRename();
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setEditingName(false);
+                      setDraftName(agent.displayName);
+                    }
+                  }}
+                  className="min-w-0 flex-1 rounded-lg border border-emerald-400 bg-white px-2 py-1 text-sm font-semibold text-stone-800 outline-none ring-2 ring-emerald-100"
+                />
+                <button
+                  type="button"
+                  onClick={commitRename}
+                  aria-label="Simpan nama"
+                  className="rounded-lg bg-emerald-600 p-1.5 text-white transition hover:bg-emerald-700"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingName(false);
+                    setDraftName(agent.displayName);
+                  }}
+                  aria-label="Batal ganti nama"
+                  className="rounded-lg bg-stone-100 p-1.5 text-stone-500 transition hover:bg-stone-200"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="mt-1 flex items-center gap-1.5">
+                <h2 className="truncate text-base font-bold text-stone-800">
+                  {agent.displayName}
+                </h2>
+                {onRenameAgent && (
+                  <button
+                    type="button"
+                    aria-label="Ganti nama agent"
+                    title="Ganti nama agent"
+                    onClick={() => {
+                      setDraftName(agent.displayName);
+                      setEditingName(true);
+                    }}
+                    className="shrink-0 rounded-lg p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {onRenameAgent && agent.hasCustomAlias && (
+                  <button
+                    type="button"
+                    aria-label="Reset nama"
+                    title="Kembalikan ke nama default"
+                    onClick={() => onRenameAgent(agent.id, null)}
+                    className="shrink-0 rounded-lg p-1 text-stone-400 transition hover:bg-stone-100 hover:text-amber-600"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           <button
@@ -170,7 +264,7 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
                   <span
                     className={`h-1.5 w-1.5 rounded-full ${STATUS_BADGE[child.status].dot}`}
                   />
-                  <span>↳ {child.role || child.displayName}</span>
+                  <span>↳ {child.displayName || child.role}</span>
                 </button>
               ))}
             </div>

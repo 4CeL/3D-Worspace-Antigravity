@@ -7,7 +7,7 @@ import { InspectorDrawer } from './ui/InspectorDrawer';
 import { filterSnapshotForView } from './ui/filterSnapshot';
 
 export const App: React.FC = () => {
-  const { snapshot, connected, recency, setRecency, toggleDemo } = useOfficeSocket();
+  const { snapshot, connected, recency, setRecency, toggleDemo, renameAgent } = useOfficeSocket();
   const [selectedProject, setSelectedProject] = useState<string>('ALL');
   const [showLabels, setShowLabels] = useState(true);
   const [hideFinished, setHideFinished] = useState(false);
@@ -78,6 +78,7 @@ export const App: React.FC = () => {
         allAgents={snapshot.agents}
         onClose={() => setSelectedAgentId(null)}
         onFocusAgent={handleFocusAgent}
+        onRenameAgent={(id, name) => void renameAgent(id, name)}
       />
 
       {/* Cozy empty-state card when no recent Antigravity sessions are visible */}

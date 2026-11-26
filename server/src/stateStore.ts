@@ -98,15 +98,51 @@ function getRecencyCutoffMs(recency: RecencyWindow, now: number): number {
   return startOfDay.getTime();
 }
 
+export interface StateStoreOptions {
+  initialAliases?: Record<string, string>;
+}
+
 export class StateStore {
   private readonly agents = new Map<string, InternalAgent>();
   private readonly parentLinks = new Map<string, ParentLink>();
+  private readonly customAliases = new Map<string, string>();
   private readonly recentDedup = new Map<string, { timestamp: number; source: 'hook' | 'transcript' }>();
   private readonly seenToolCallIds = new Set<string>();
   private readonly pulses: ActivePulse[] = [];
   private readonly listeners = new Set<() => void>();
   private hookActive = false;
   private lastHookAt: number | null = null;
+
+  constructor(options: StateStoreOptions = {}) {
+    if (options.initialAliases) {
+      for (const [id, name] of Object.entries(options.initialAliases)) {
+        const trimmed = name.trim();
+        if (id && trimmed) {
+          this.customAliases.set(id, trimmed);
+        }
+      }
+    }
+  }
+
+  setAgentAlias(agentId: string, name: string | null): void {
+    const id = agentId.trim();
+    if (!id) return;
+    const trimmed = typeof name === 'string' ? name.trim().slice(0, 60) : '';
+    if (trimmed) {
+      this.customAliases.set(id, trimmed);
+    } else {
+      this.customAliases.delete(id);
+    }
+    this.emitChange();
+  }
+
+  getAliases(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const [k, v] of this.customAliases.entries()) {
+      out[k] = v;
+    }
+    return out;
+  }
 
   onChange(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -586,6 +622,7 @@ export class StateStore {
       });
 
       const lead = members[0];
+      const leadAlias = this.customAliases.get(lead.id);
       const projectName =
         members.find((m) => m.projectName !== 'Antigravity')?.projectName || lead.projectName;
       const workspacePath =
@@ -595,7 +632,7 @@ export class StateStore {
         rootId,
         projectName,
         workspacePath,
-        title: lead.displayName,
+        title: leadAlias || lead.displayName,
         leadAgentId: lead.id,
         agentIds: members.map((m) => m.id),
         lastUpdatedAt: clusterUpdatedAt,
@@ -605,12 +642,14 @@ export class StateStore {
         const sortedFiles = Array.from(m.files.values()).sort(
           (a, b) => b.lastTouchedAt - a.lastTouchedAt,
         );
+        const alias = this.customAliases.get(m.id);
         agentsOut[m.id] = {
           id: m.id,
           parentId: m.parentId,
           rootId,
           isSubagent: m.id !== rootId || Boolean(m.parentId),
-          displayName: m.displayName,
+          displayName: alias || m.displayName,
+          hasCustomAlias: Boolean(alias),
           role: m.id === rootId && !m.parentId ? 'Main Agent' : m.role,
           typeName: m.typeName,
           modelName: m.modelName,

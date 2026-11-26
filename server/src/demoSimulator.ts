@@ -71,10 +71,22 @@ const PHASES: DemoPhase[] = [
 export class DemoSimulator {
   private tickIndex = 0;
   private timer: NodeJS.Timeout | null = null;
+  private readonly customAliases = new Map<string, string>();
   private snapshot: OfficeSnapshot;
 
   constructor() {
     this.snapshot = this.buildSnapshot(Date.now());
+  }
+
+  setAgentAlias(agentId: string, name: string | null): OfficeSnapshot {
+    const trimmed = typeof name === 'string' ? name.trim().slice(0, 60) : '';
+    if (trimmed) {
+      this.customAliases.set(agentId, trimmed);
+    } else {
+      this.customAliases.delete(agentId);
+    }
+    this.snapshot = this.buildSnapshot(Date.now());
+    return this.snapshot;
   }
 
   start(onTick: (snapshot: OfficeSnapshot) => void, intervalMs = 2800): void {
@@ -320,12 +332,24 @@ export class DemoSimulator {
       createdAt: now - 900_000,
     };
 
+    const applyAlias = (agent: AgentNode): AgentNode => {
+      const alias = this.customAliases.get(agent.id);
+      return alias
+        ? { ...agent, displayName: alias, hasCustomAlias: true }
+        : { ...agent, hasCustomAlias: false };
+    };
+
+    const finalLead1 = applyAlias(lead1);
+    const finalSub1 = applyAlias(sub1);
+    const finalSub2 = applyAlias(sub2);
+    const finalLead2 = applyAlias(lead2);
+
     const clusters: TeamCluster[] = [
       {
         rootId: 'demo-lead-1',
         projectName: '3D Workspace',
         workspacePath: ws1,
-        title: lead1.displayName,
+        title: finalLead1.displayName,
         leadAgentId: 'demo-lead-1',
         agentIds: ['demo-lead-1', 'demo-sub-1', 'demo-sub-2'],
         lastUpdatedAt: now,
@@ -334,7 +358,7 @@ export class DemoSimulator {
         rootId: 'demo-lead-2',
         projectName: 'Mobile Commerce',
         workspacePath: ws2,
-        title: lead2.displayName,
+        title: finalLead2.displayName,
         leadAgentId: 'demo-lead-2',
         agentIds: ['demo-lead-2'],
         lastUpdatedAt: now - 140_000,
@@ -359,10 +383,10 @@ export class DemoSimulator {
       demoMode: true,
       clusters,
       agents: {
-        [lead1.id]: lead1,
-        [sub1.id]: sub1,
-        [sub2.id]: sub2,
-        [lead2.id]: lead2,
+        [finalLead1.id]: finalLead1,
+        [finalSub1.id]: finalSub1,
+        [finalSub2.id]: finalSub2,
+        [finalLead2.id]: finalLead2,
       },
       activePulses,
     };
