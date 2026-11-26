@@ -9,7 +9,7 @@
     "client"
   ],
   "scripts": {
-    "dev": "concurrently -n SERVER,CLIENT -c cyan,green \"npm run dev --workspace=server\" \"npm run dev --workspace=client\"",
+    "dev": "npm run build --workspace=shared && concurrently -n SERVER,CLIENT -c cyan,green \"npm run dev --workspace=server\" \"npm run dev --workspace=client\"",
     "build": "npm run build --workspace=shared && npm run build --workspace=server && npm run build --workspace=client",
     "test": "vitest run",
     "setup-hooks": "node hooks/setup-hooks.mjs",
