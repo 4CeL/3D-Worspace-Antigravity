@@ -64,6 +64,33 @@ describe('computeFloorWaypoints', () => {
       }
     }
   });
+
+  it('defines dedicated Engineering room waypoints for Di Pantry, Ruang Server, and Ruang Istirahat with doorway entry', () => {
+    const waypoints = computeFloorWaypoints(FIXED_FLOOR_WIDTH, FIXED_FLOOR_DEPTH, 'engineering');
+    const byId = new Map(waypoints.map((w) => [w.id, w]));
+
+    expect(byId.get('front-left-room')).toMatchObject({
+      label: 'Di Pantry',
+      x: -11.1,
+      z: 4.4,
+      entryDoor: [-11.1, 2.8],
+      preferredBubble: '☕',
+    });
+    expect(byId.get('back-right-pantry')).toMatchObject({
+      label: 'Ruang Server',
+      x: 11.2,
+      z: -4.6,
+      entryDoor: [11.2, -2.8],
+      preferredBubble: '💡',
+    });
+    expect(byId.get('front-right-terrace')).toMatchObject({
+      label: 'Ruang Istirahat',
+      x: 11.2,
+      z: 4.6,
+      entryDoor: [11.2, 2.8],
+      preferredBubble: '💤',
+    });
+  });
 });
 
 describe('RoamingController', () => {
@@ -558,5 +585,145 @@ describe('RoamingController', () => {
     expect(controller.getState(sideSubId)!.rotationY).toBeCloseTo(
       layout.desks[sideSubId].rotationY + Math.PI,
     );
+  });
+
+  it('spreads 6 idle subagents across at least 3 distinct waypoints (max 2 per spot) and routes Ruang Istirahat via doorway [11.2, 2.8]', () => {
+    const floors: FloorConfig[] = [
+      { id: 'floor-1', index: 1, name: 'Lantai 1', theme: 'engineering' },
+    ];
+    const agents: Record<string, AgentNode> = {
+      'lead-1': makeAgent('lead-1', null, 'lead-1', 'editing'),
+    };
+    const subIds = ['eng-sub-1', 'eng-sub-2', 'eng-sub-3', 'eng-sub-4', 'eng-sub-5', 'eng-sub-6'];
+    for (const id of subIds) {
+      agents[id] = makeAgent(id, 'lead-1', 'lead-1', 'idle');
+    }
+    const clusters: TeamCluster[] = [
+      {
+        rootId: 'lead-1',
+        projectName: 'Engineering Core',
+        title: 'Main',
+        leadAgentId: 'lead-1',
+        agentIds: ['lead-1', ...subIds],
+        floorId: 'floor-1',
+        lastUpdatedAt: Date.now(),
+      },
+    ];
+
+    const layout = computeOfficeLayout(clusters, agents, floors);
+    const controller = new RoamingController();
+    controller.syncLayout(layout, agents);
+
+    // Wait until all 6 subagents have left their desks and are actively roaming
+    advance(controller, 6.2);
+    for (const id of subIds) {
+      expect(controller.getState(id)?.mode).not.toBe('seated');
+    }
+
+    // Verify spread across at least 3 distinct waypoints with strictly <= 2 agents per waypoint
+    const counts = new Map<string, number>();
+    for (const id of subIds) {
+      const wpId = controller.getState(id)?.targetWaypointId;
+      expect(wpId).toBeTruthy();
+      counts.set(wpId!, (counts.get(wpId!) ?? 0) + 1);
+    }
+    expect(counts.size).toBeGreaterThanOrEqual(3);
+    for (const count of counts.values()) {
+      expect(count).toBeLessThanOrEqual(2);
+    }
+
+    // Continue simulating until a subagent visits Ruang Istirahat (front-right-terrace), verifying doorway [11.2, 2.8] on entry & return
+    let restVisitorId: string | null = null;
+    const enteredRestDoor = new Set<string>();
+
+    for (let i = 0; i < 600 && !restVisitorId; i++) {
+      controller.step(0.1);
+      for (const id of subIds) {
+        const st = controller.getState(id)!;
+        if (
+          st.targetWaypointId === 'front-right-terrace' &&
+          Math.hypot(st.x - 11.2, st.z - 2.8) < 0.5
+        ) {
+          enteredRestDoor.add(id);
+        }
+        if (st.targetWaypointId === 'front-right-terrace' && st.mode === 'visiting') {
+          restVisitorId = id;
+          break;
+        }
+      }
+    }
+
+    expect(restVisitorId).not.toBeNull();
+    expect(enteredRestDoor.has(restVisitorId!)).toBe(true);
+    expect(controller.getState(restVisitorId!)?.bubble).toBe('💤');
+
+    // Recall the rest-room visitor to work and confirm it exits through doorway [11.2, 2.8] without cutting through West glass wall (x = 9.0)
+    const updatedAgents: Record<string, AgentNode> = {
+      ...agents,
+      [restVisitorId!]: makeAgent(restVisitorId!, 'lead-1', 'lead-1', 'editing'),
+    };
+    controller.syncLayout(layout, updatedAgents);
+
+    let exitedRestDoor = false;
+    for (let i = 0; i < 200; i++) {
+      controller.step(0.05);
+      const st = controller.getState(restVisitorId!)!;
+      // While still South of the North glass wall (z > 3.0), must NEVER cross West glass wall (x = 9.0) into Suite 4
+      if (st.z > 3.0 && st.x < 9.1 && st.x > 8.6) {
+        throw new Error(`Agent phased through Ruang Istirahat West glass wall at (${st.x}, ${st.z})`);
+      }
+      if (Math.hypot(st.x - 11.2, st.z - 2.8) < 0.5) {
+        exitedRestDoor = true;
+      }
+      if (st.mode === 'seated') break;
+    }
+
+    expect(exitedRestDoor).toBe(true);
+    expect(controller.getState(restVisitorId!)?.mode).toBe('seated');
+  });
+
+  it('maintains <= 2 occupancy per waypoint across sustained multi-cycle roaming for 3 and 4 idle subagents', () => {
+    for (const subCount of [3, 4]) {
+      const floors: FloorConfig[] = [
+        { id: 'floor-1', index: 1, name: 'Lantai 1', theme: 'engineering' },
+      ];
+      const agents: Record<string, AgentNode> = {
+        'lead-1': makeAgent('lead-1', null, 'lead-1', 'editing'),
+      };
+      const subIds = Array.from({ length: subCount }, (_, i) => `spread-${subCount}-sub-${i + 1}`);
+      for (const id of subIds) {
+        agents[id] = makeAgent(id, 'lead-1', 'lead-1', 'idle');
+      }
+      const clusters: TeamCluster[] = [
+        {
+          rootId: 'lead-1',
+          projectName: 'Engineering Core',
+          title: 'Main',
+          leadAgentId: 'lead-1',
+          agentIds: ['lead-1', ...subIds],
+          floorId: 'floor-1',
+          lastUpdatedAt: Date.now(),
+        },
+      ];
+
+      const layout = computeOfficeLayout(clusters, agents, floors);
+      const controller = new RoamingController();
+      controller.syncLayout(layout, agents);
+
+      // Step for 45 simulated seconds across multiple waypoint transitions & chats
+      for (let tick = 0; tick < 450; tick++) {
+        controller.step(0.1);
+        const counts = new Map<string, number>();
+        for (const id of subIds) {
+          const st = controller.getState(id)!;
+          if (st.mode !== 'seated' && st.targetWaypointId) {
+            counts.set(st.targetWaypointId, (counts.get(st.targetWaypointId) ?? 0) + 1);
+          }
+        }
+        for (const count of counts.values()) {
+          expect(count).toBeLessThanOrEqual(2);
+        }
+      }
+    }
   });
 });

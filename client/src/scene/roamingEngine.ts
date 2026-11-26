@@ -3,7 +3,7 @@ import type { DeskPlacement, FloorLayout, OfficeLayout } from './officeLayout';
 
 export type RoamingMode = 'seated' | 'walking_out' | 'visiting' | 'chatting' | 'returning';
 
-export type RoamingBubble = '💬' | '☕' | '💡' | '👋' | null;
+export type RoamingBubble = '💬' | '☕' | '💡' | '👋' | '💤' | null;
 
 export interface FloorWaypoint {
   id: string;
@@ -129,10 +129,12 @@ export function computeFloorWaypoints(
         ? 'Ruang Diskusi'
         : theme === 'pantry'
           ? 'Area Bistro'
-          : 'Ruang Santai';
+          : 'Di Pantry';
 
   const clampX = (x: number) => clamp(x, -halfW + 1.8, halfW - 1.8);
   const clampZ = (z: number) => clamp(z, -halfD + 1.8, halfD - 1.8);
+
+  const isEngineering = theme === 'engineering';
 
   return [
     {
@@ -152,15 +154,15 @@ export function computeFloorWaypoints(
       id: 'front-left-room',
       label: loungeLabel,
       x: clampX(-11.1),
-      z: clampZ(4.6),
+      z: clampZ(isEngineering ? 4.4 : 4.6),
       entryDoor: [clampX(-11.1), 2.8],
       preferredBubble: theme === 'creative' ? '💡' : '☕',
     },
     {
       id: 'back-right-pantry',
       label: pantryLabel,
-      x: clampX(11.1),
-      z: clampZ(-4.5),
+      x: clampX(isEngineering ? 11.2 : 11.1),
+      z: clampZ(isEngineering ? -4.6 : -4.5),
       entryDoor: [clampX(11.2), -2.8],
       preferredBubble: theme === 'engineering' || theme === 'creative' ? '💡' : '☕',
     },
@@ -170,12 +172,21 @@ export function computeFloorWaypoints(
       x: clampX(11.2),
       z: 0.2,
     },
-    {
-      id: 'front-right-terrace',
-      label: 'Sudut Tanaman',
-      x: clampX(11.2),
-      z: clampZ(6.2),
-    },
+    isEngineering
+      ? {
+          id: 'front-right-terrace',
+          label: 'Ruang Istirahat',
+          x: clampX(11.2),
+          z: clampZ(4.6),
+          entryDoor: [clampX(11.2), 2.8],
+          preferredBubble: '💤',
+        }
+      : {
+          id: 'front-right-terrace',
+          label: 'Sudut Tanaman',
+          x: clampX(11.2),
+          z: clampZ(6.2),
+        },
   ];
 }
 
@@ -534,7 +545,7 @@ export class RoamingController {
     }
   }
 
-  private getEnclosingRoomDoor(x: number, z: number): Point2D | null {
+  private getEnclosingRoomDoor(x: number, z: number, floorId: string): Point2D | null {
     // Front-Left Glass Room: x in [-13.5, -8.8], z in [2.8, 11.2], North doorway [-11.1, 2.8]
     if (x <= -8.7 && z >= 2.6) {
       return { x: -11.1, z: 2.8 };
@@ -542,6 +553,10 @@ export class RoamingController {
     // Back-Right Glass Room: x in [9.0, 13.5], z in [-11.3, -2.8], South doorway [11.2, -2.8]
     if (x >= 8.9 && z <= -2.6) {
       return { x: 11.2, z: -2.8 };
+    }
+    // Front-Right Glass Rest Room (engineering): x in [9.0, 13.5], z in [2.8, 11.2], North doorway [11.2, 2.8]
+    if (this.floorsById.get(floorId)?.theme === 'engineering' && x >= 8.9 && z >= 2.6) {
+      return { x: 11.2, z: 2.8 };
     }
     return null;
   }
@@ -562,7 +577,7 @@ export class RoamingController {
       Math.abs(rec.x - rec.suiteDoor.x) < 4.0;
 
     if (!insideOwnSuite && rec.suiteDoor) {
-      const physicalRoomDoor = this.getEnclosingRoomDoor(rec.x, rec.z);
+      const physicalRoomDoor = this.getEnclosingRoomDoor(rec.x, rec.z, rec.floorId);
       const exitDoor =
         physicalRoomDoor ??
         (prevWp?.entryDoor && Math.abs(rec.z) > 2.4
@@ -644,18 +659,41 @@ export class RoamingController {
     if (a.targetWaypointId !== null && a.targetWaypointId === b.targetWaypointId) {
       const wp = this.findWaypoint(a.floorId, a.targetWaypointId);
       if (wp?.entryDoor) {
-        // Both agents must already be well inside the glass room past its doorway (|z| >= 3.4)
+        // Both agents must already be well inside the same glass room past its doorway (|z| >= 3.4)
         const doorSign = Math.sign(wp.entryDoor[1]);
+        const doorX = wp.entryDoor[0];
         return (
           Math.sign(a.z) === doorSign &&
           Math.sign(b.z) === doorSign &&
           Math.abs(a.z) >= Math.abs(wp.entryDoor[1]) + 0.6 &&
-          Math.abs(b.z) >= Math.abs(wp.entryDoor[1]) + 0.6
+          Math.abs(b.z) >= Math.abs(wp.entryDoor[1]) + 0.6 &&
+          Math.abs(a.x - doorX) <= 2.3 &&
+          Math.abs(b.x - doorX) <= 2.3
         );
       }
       return true;
     }
     return false;
+  }
+
+  private countWaypointOccupants(
+    floorId: string,
+    waypointId: string,
+    excludeAgentId?: string,
+  ): number {
+    let count = 0;
+    for (const rec of this.records.values()) {
+      if (rec.agentId === excludeAgentId) continue;
+      if (rec.floorId !== floorId) continue;
+      if (!rec.isSubagent || rec.status !== 'idle') continue;
+      if (
+        (rec.mode === 'visiting' || rec.mode === 'walking_out' || rec.mode === 'chatting') &&
+        rec.targetWaypointId === waypointId
+      ) {
+        count += 1;
+      }
+    }
+    return count;
   }
 
   private tryPairWalkingWithVisitor(walker: InternalAgentRecord): boolean {
@@ -670,10 +708,22 @@ export class RoamingController {
       if (candidate.mode !== 'visiting' || candidate.partnerId !== null) continue;
       if (!this.isInSameOpenZone(walker, candidate)) continue;
 
+      // Never hijack a passing walker onto a waypoint that already has another incoming peer (>= 2)
+      if (
+        candidate.targetWaypointId &&
+        walker.targetWaypointId !== candidate.targetWaypointId &&
+        this.countWaypointOccupants(walker.floorId, candidate.targetWaypointId, walker.agentId) >= 2
+      ) {
+        continue;
+      }
+
       const d = Math.hypot(candidate.x - walker.x, candidate.z - walker.z);
       if (d <= 1.85) {
         walker.path = [];
         walker.mode = 'visiting';
+        if (candidate.targetWaypointId) {
+          walker.targetWaypointId = candidate.targetWaypointId;
+        }
         return this.pairAgentsForChat(walker, candidate);
       }
     }
@@ -768,20 +818,46 @@ export class RoamingController {
     const list = this.waypointsByFloor.get(rec.floorId);
     if (!list || list.length === 0) return null;
 
-    // Prefer joining a lone visiting or strolling coworker on the same floor
-    const lonePeer = Array.from(this.records.values()).find(
+    // Count active idle subagent occupancy per waypoint on this floor (excluding rec)
+    const occupantsByWaypoint = new Map<string, number>();
+    let totalIdleOnFloor = 1; // includes rec
+    const floorIdlePeers: InternalAgentRecord[] = [];
+
+    for (const other of this.records.values()) {
+      if (other.agentId === rec.agentId) continue;
+      if (other.floorId !== rec.floorId) continue;
+      if (!other.isSubagent || other.status !== 'idle') continue;
+      totalIdleOnFloor += 1;
+      floorIdlePeers.push(other);
+
+      if (
+        (other.mode === 'visiting' || other.mode === 'walking_out' || other.mode === 'chatting') &&
+        other.targetWaypointId !== null
+      ) {
+        occupantsByWaypoint.set(
+          other.targetWaypointId,
+          (occupantsByWaypoint.get(other.targetWaypointId) ?? 0) + 1,
+        );
+      }
+    }
+
+    const hasActiveOrPendingPair = Array.from(occupantsByWaypoint.values()).some((c) => c >= 2);
+
+    // Find a lone unpaired peer whose waypoint currently has occupancy === 1 (so joining makes at most 2)
+    const lonePeer = floorIdlePeers.find(
       (other) =>
-        other.agentId !== rec.agentId &&
-        other.floorId === rec.floorId &&
-        other.isSubagent &&
-        other.status === 'idle' &&
         (other.mode === 'visiting' || other.mode === 'walking_out') &&
         other.partnerId === null &&
         other.targetWaypointId !== null &&
-        other.targetWaypointId !== rec.targetWaypointId,
+        other.targetWaypointId !== rec.targetWaypointId &&
+        (occupantsByWaypoint.get(other.targetWaypointId) ?? 0) === 1,
     );
 
-    if (lonePeer && lonePeer.targetWaypointId) {
+    const shouldJoinLonePeer =
+      lonePeer !== undefined &&
+      (totalIdleOnFloor <= 2 || (!hasActiveOrPendingPair && (rec.hash + rec.visitCount) % 2 === 0));
+
+    if (shouldJoinLonePeer && lonePeer?.targetWaypointId) {
       const shared = this.findWaypoint(rec.floorId, lonePeer.targetWaypointId);
       if (shared) {
         if (lonePeer.mode === 'visiting') {
@@ -792,10 +868,20 @@ export class RoamingController {
       }
     }
 
+    // Otherwise spread across least-occupied destinations (strictly respecting max 2 per waypoint when available)
     const candidates = list.filter((w) => w.id !== rec.targetWaypointId);
     const pool = candidates.length > 0 ? candidates : list;
-    const idx = (rec.hash + rec.visitCount * 7) % pool.length;
-    return pool[idx];
+    const underCap = pool.filter((w) => (occupantsByWaypoint.get(w.id) ?? 0) < 2);
+    const eligible = underCap.length > 0 ? underCap : pool;
+
+    let minOcc = Infinity;
+    for (const w of eligible) {
+      const occ = occupantsByWaypoint.get(w.id) ?? 0;
+      if (occ < minOcc) minOcc = occ;
+    }
+    const leastOccupied = eligible.filter((w) => (occupantsByWaypoint.get(w.id) ?? 0) === minOcc);
+    const idx = (rec.hash + rec.visitCount * 7) % leastOccupied.length;
+    return leastOccupied[idx];
   }
 
   private findWaypoint(floorId: string, waypointId: string | null): FloorWaypoint | null {
@@ -829,7 +915,7 @@ export class RoamingController {
       }
     } else {
       const curWp = this.findWaypoint(rec.floorId, rec.targetWaypointId);
-      const physicalRoomDoor = this.getEnclosingRoomDoor(rec.x, rec.z);
+      const physicalRoomDoor = this.getEnclosingRoomDoor(rec.x, rec.z, rec.floorId);
       const exitDoor =
         physicalRoomDoor ??
         (curWp?.entryDoor && Math.abs(rec.z) > 2.4

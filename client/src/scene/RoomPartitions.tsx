@@ -388,6 +388,41 @@ export const RoomPartitions: React.FC<RoomPartitionsProps> = ({
         opacity={0.2}
         frostedBand={false}
       />
+
+      {/* ====================================================================
+       * 5. Front-Right Transparent Glass Rest / Nap Room (Engineering theme)
+       *    x in [9.0, 13.5], z in [2.8, 11.2], North doorway at [11.2, 2.8]
+       * ================================================================== */}
+      {theme === 'engineering' && (
+        <group>
+          <DoorwayGlassWall xMin={9.0} xMax={13.5} z={2.8} doorCenterX={11.2} />
+          {/* West full-height glass wall separating Suite 4 and Rest Room */}
+          <GlassWallSegment
+            width={11.2 - 2.8}
+            height={WALL_HEIGHT}
+            position={[9.0, 0, (2.8 + 11.2) / 2]}
+            rotationY={Math.PI / 2}
+            opacity={0.22}
+          />
+          {/* South cutaway lower glass rail */}
+          <GlassWallSegment
+            width={13.5 - 9.0}
+            height={1.15}
+            position={[(9.0 + 13.5) / 2, 0, 11.2]}
+            opacity={0.2}
+            frostedBand={false}
+          />
+          {/* East cutaway lower glass edge */}
+          <GlassWallSegment
+            width={11.2 - 2.8}
+            height={1.25}
+            position={[13.5, 0, (2.8 + 11.2) / 2]}
+            rotationY={Math.PI / 2}
+            opacity={0.2}
+            frostedBand={false}
+          />
+        </group>
+      )}
     </group>
   );
 };

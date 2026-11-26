@@ -1613,11 +1613,470 @@ function FloatingMugShelf({ position }: { position: [number, number, number] }) 
 }
 
 /* ============================================================================
+ * Dedicated Engineering Floor Rooms:
+ * 1. EngineeringServerRoom (Back-Right Glass Room: x in [9.0, 13.5], z in [-11.3, -2.8])
+ * 2. EngineeringPantryZone (Front-Left Glass Room: x in [-13.5, -8.8], z in [2.8, 11.2])
+ * 3. CozyRestRoomZone      (Front-Right Glass Room: x in [9.0, 13.5], z in [2.8, 11.2])
+ * ========================================================================== */
+
+function EngineeringServerRoom() {
+  const gridXs = [-1.2, -0.4, 0.4, 1.2];
+  const gridZs = [-2.7, -1.8, -0.9, 0, 0.9, 1.8, 2.7];
+
+  return (
+    <group>
+      {/* Raised anti-static dark-slate data-center floor mat */}
+      <group position={[11.25, 0, -7.2]}>
+        <mesh position={[0, 0.015, 0]} receiveShadow>
+          <boxGeometry args={[4.0, 0.028, 7.2]} />
+          <meshStandardMaterial color="#1e293b" roughness={0.78} metalness={0.12} />
+        </mesh>
+        {/* Subtle raised-tile grid lines at y = 0.031 */}
+        {gridXs.map((gx) => (
+          <mesh key={`gx-${gx}`} position={[gx, 0.031, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+            <planeGeometry args={[0.025, 7.05]} />
+            <meshStandardMaterial color="#334155" roughness={0.7} />
+          </mesh>
+        ))}
+        {gridZs.map((gz) => (
+          <mesh key={`gz-${gz}`} position={[0, 0.031, gz]} rotation={[-Math.PI / 2, 0, 0]}>
+            <planeGeometry args={[3.85, 0.025]} />
+            <meshStandardMaterial color="#334155" roughness={0.7} />
+          </mesh>
+        ))}
+      </group>
+
+      {/* 3 full-height 42U server racks along the North back wall */}
+      <ServerRack42U position={[10.15, 0, -10.55]} />
+      <ServerRack42U position={[11.25, 0, -10.55]} />
+      <ServerRack42U position={[12.35, 0, -10.55]} />
+
+      {/* Sleek overhead cable ladder tray connecting the 3 North racks */}
+      <group position={[11.25, 2.24, -10.55]}>
+        <mesh position={[0, 0, -0.18]} castShadow>
+          <boxGeometry args={[3.1, 0.06, 0.04]} />
+          <meshStandardMaterial color="#475569" metalness={0.5} roughness={0.4} />
+        </mesh>
+        <mesh position={[0, 0, 0.18]} castShadow>
+          <boxGeometry args={[3.1, 0.06, 0.04]} />
+          <meshStandardMaterial color="#475569" metalness={0.5} roughness={0.4} />
+        </mesh>
+        {[-1.35, -0.9, -0.45, 0, 0.45, 0.9, 1.35].map((rx) => (
+          <mesh key={rx} position={[rx, -0.01, 0]}>
+            <boxGeometry args={[0.035, 0.025, 0.36]} />
+            <meshStandardMaterial color="#64748b" metalness={0.45} roughness={0.45} />
+          </mesh>
+        ))}
+        {/* Fiber-optic conduit bundles resting on ladder tray */}
+        <mesh position={[0, 0.02, -0.06]}>
+          <boxGeometry args={[2.95, 0.032, 0.045]} />
+          <meshStandardMaterial color="#0ea5e9" roughness={0.4} />
+        </mesh>
+        <mesh position={[0, 0.02, 0.05]}>
+          <boxGeometry args={[2.95, 0.028, 0.04]} />
+          <meshStandardMaterial color="#f59e0b" roughness={0.45} />
+        </mesh>
+      </group>
+
+      {/* 2 additional 42U server racks along the West interior glass wall facing East */}
+      <group position={[9.75, 0, -8.35]} rotation={[0, Math.PI / 2, 0]}>
+        <ServerRack42U position={[0, 0, 0]} />
+      </group>
+      <group position={[9.75, 0, -7.15]} rotation={[0, Math.PI / 2, 0]}>
+        <ServerRack42U position={[0, 0, 0]} />
+      </group>
+
+      {/* Short overhead cable ladder tray above the 2 West racks */}
+      <group position={[9.75, 2.24, -7.75]} rotation={[0, Math.PI / 2, 0]}>
+        <mesh position={[0, 0, -0.16]} castShadow>
+          <boxGeometry args={[2.0, 0.055, 0.038]} />
+          <meshStandardMaterial color="#475569" metalness={0.5} roughness={0.4} />
+        </mesh>
+        <mesh position={[0, 0, 0.16]} castShadow>
+          <boxGeometry args={[2.0, 0.055, 0.038]} />
+          <meshStandardMaterial color="#475569" metalness={0.5} roughness={0.4} />
+        </mesh>
+        {[-0.75, -0.25, 0.25, 0.75].map((rx) => (
+          <mesh key={rx} position={[rx, -0.01, 0]}>
+            <boxGeometry args={[0.032, 0.022, 0.32]} />
+            <meshStandardMaterial color="#64748b" metalness={0.45} roughness={0.45} />
+          </mesh>
+        ))}
+        <mesh position={[0, 0.02, 0]}>
+          <boxGeometry args={[1.9, 0.03, 0.05]} />
+          <meshStandardMaterial color="#0ea5e9" roughness={0.4} />
+        </mesh>
+      </group>
+
+      {/* Wall-mounted precision server AC cooling unit on solid wall header above Window #3 (y > 3.025) */}
+      <group position={[11.25, 3.36, -11.85]}>
+        <mesh castShadow>
+          <boxGeometry args={[1.38, 0.42, 0.28]} />
+          <meshStandardMaterial color="#e2e8f0" roughness={0.4} />
+        </mesh>
+        {/* Louvered air vent grille */}
+        <mesh position={[-0.08, -0.08, 0.144]}>
+          <boxGeometry args={[1.02, 0.12, 0.018]} />
+          <meshStandardMaterial color="#334155" roughness={0.6} />
+        </mesh>
+        {/* Cool-blue precision cooling status LED */}
+        <mesh position={[0.52, 0.07, 0.148]}>
+          <sphereGeometry args={[0.028, 10, 10]} />
+          <meshStandardMaterial
+            color="#38bdf8"
+            emissive="#0ea5e9"
+            emissiveIntensity={1.25}
+            roughness={0.2}
+          />
+        </mesh>
+      </group>
+    </group>
+  );
+}
+
+function EngineeringPantryZone() {
+  return (
+    <group>
+      {/* Soft woven pantry rug */}
+      <mesh position={[-11.15, 0.015, 7.6]} receiveShadow>
+        <boxGeometry args={[3.9, 0.028, 5.4]} />
+        <meshStandardMaterial color="#efe4d3" roughness={0.95} />
+      </mesh>
+
+      {/* Base counter cabinetry + countertop along West wall */}
+      <group position={[-13.18, 0, 7.0]} rotation={[0, Math.PI / 2, 0]}>
+        <mesh position={[0, 0.48, 0]} castShadow receiveShadow>
+          <boxGeometry args={[2.45, 0.96, 0.84]} />
+          <meshStandardMaterial color="#966945" roughness={0.72} />
+        </mesh>
+        {/* Shaker cabinet doors */}
+        {[-0.78, 0, 0.78].map((px) => (
+          <group key={px} position={[px, 0.48, 0.425]}>
+            <mesh>
+              <boxGeometry args={[0.68, 0.74, 0.02]} />
+              <meshStandardMaterial color="#a67750" roughness={0.74} />
+            </mesh>
+            <mesh position={[0.24, 0.12, 0.02]}>
+              <sphereGeometry args={[0.022, 8, 8]} />
+              <meshStandardMaterial color="#d4a359" metalness={0.6} roughness={0.3} />
+            </mesh>
+          </group>
+        ))}
+        {/* Cream stone countertop */}
+        <mesh position={[0, 0.99, 0]} castShadow receiveShadow>
+          <boxGeometry args={[2.54, 0.08, 0.9]} />
+          <meshStandardMaterial color="#fffaf2" roughness={0.45} />
+        </mesh>
+        {/* Espresso machine */}
+        <EspressoMachine position={[-0.78, 1.03, -0.04]} />
+        {/* Ceramic mugs & snack jar */}
+        <mesh position={[-0.12, 1.1, 0.12]} castShadow>
+          <cylinderGeometry args={[0.068, 0.06, 0.14, 10]} />
+          <meshStandardMaterial color="#e07a5f" roughness={0.4} />
+        </mesh>
+        <mesh position={[0.06, 1.1, -0.02]} castShadow>
+          <cylinderGeometry args={[0.068, 0.06, 0.14, 10]} />
+          <meshStandardMaterial color="#ffffff" roughness={0.35} />
+        </mesh>
+        <mesh position={[0.22, 1.14, -0.14]} castShadow>
+          <cylinderGeometry args={[0.095, 0.095, 0.22, 12]} />
+          <meshStandardMaterial color="#fef3c7" transparent opacity={0.82} roughness={0.2} />
+        </mesh>
+        <mesh position={[0.22, 1.26, -0.14]}>
+          <cylinderGeometry args={[0.1, 0.1, 0.03, 12]} />
+          <meshStandardMaterial color="#966945" roughness={0.65} />
+        </mesh>
+        {/* Microwave */}
+        <group position={[0.78, 1.24, -0.04]}>
+          <mesh castShadow>
+            <boxGeometry args={[0.7, 0.42, 0.46]} />
+            <meshStandardMaterial color="#e7e5e4" roughness={0.45} />
+          </mesh>
+          <mesh position={[-0.08, 0, 0.234]}>
+            <planeGeometry args={[0.42, 0.28]} />
+            <meshStandardMaterial color="#1e293b" roughness={0.2} metalness={0.3} />
+          </mesh>
+          <mesh position={[0.23, 0.07, 0.234]}>
+            <planeGeometry args={[0.11, 0.06]} />
+            <meshStandardMaterial color="#10b981" emissive="#10b981" emissiveIntensity={0.65} />
+          </mesh>
+        </group>
+      </group>
+
+      {/* Upper wall pantry cupboards ("lemari atas") above counter (clear of espresso warming cup) */}
+      <group position={[-13.55, 2.12, 7.0]} rotation={[0, Math.PI / 2, 0]}>
+        <mesh castShadow receiveShadow>
+          <boxGeometry args={[2.38, 0.78, 0.42]} />
+          <meshStandardMaterial color="#b08256" roughness={0.72} />
+        </mesh>
+        {[-0.86, -0.29, 0.29, 0.86].map((dx, idx) => (
+          <group key={dx} position={[dx, 0, 0.218]}>
+            <mesh>
+              <boxGeometry args={[0.52, 0.7, 0.022]} />
+              <meshStandardMaterial color="#c29466" roughness={0.7} />
+            </mesh>
+            <mesh position={[idx % 2 === 0 ? 0.18 : -0.18, -0.18, 0.02]}>
+              <boxGeometry args={[0.024, 0.14, 0.024]} />
+              <meshStandardMaterial color="#d4a359" metalness={0.6} roughness={0.3} />
+            </mesh>
+          </group>
+        ))}
+      </group>
+
+      {/* Tall Pantry Storage Cupboard ("lemari pantry") */}
+      <group position={[-13.15, 0, 9.25]} rotation={[0, Math.PI / 2, 0]}>
+        {/* Main oak carcass */}
+        <mesh position={[0, 1.04, 0]} castShadow receiveShadow>
+          <boxGeometry args={[1.24, 2.08, 0.6]} />
+          <meshStandardMaterial color="#a6794f" roughness={0.72} />
+        </mesh>
+        {/* Lower double wooden cabinet doors */}
+        {[-0.29, 0.29].map((dx, idx) => (
+          <group key={dx} position={[dx, 0.5, 0.308]}>
+            <mesh>
+              <boxGeometry args={[0.54, 0.88, 0.024]} />
+              <meshStandardMaterial color="#ba8c60" roughness={0.7} />
+            </mesh>
+            <mesh position={[idx === 0 ? 0.19 : -0.19, 0.14, 0.022]}>
+              <sphereGeometry args={[0.024, 8, 8]} />
+              <meshStandardMaterial color="#d4a359" metalness={0.6} roughness={0.3} />
+            </mesh>
+          </group>
+        ))}
+        {/* Upper recessed open/glass shelving bay with snack boxes & jars */}
+        <mesh position={[0, 1.48, 0.16]}>
+          <boxGeometry args={[1.1, 0.94, 0.32]} />
+          <meshStandardMaterial color="#755235" roughness={0.85} />
+        </mesh>
+        <mesh position={[0, 1.48, 0.18]}>
+          <boxGeometry args={[1.12, 0.045, 0.34]} />
+          <meshStandardMaterial color="#c29466" roughness={0.72} />
+        </mesh>
+        {/* Upper shelf jars & colorful boxes */}
+        <mesh position={[-0.32, 1.66, 0.22]} castShadow>
+          <boxGeometry args={[0.18, 0.24, 0.14]} />
+          <meshStandardMaterial color="#f59e0b" roughness={0.65} />
+        </mesh>
+        <mesh position={[-0.08, 1.64, 0.22]} castShadow>
+          <boxGeometry args={[0.16, 0.2, 0.14]} />
+          <meshStandardMaterial color="#60a5fa" roughness={0.65} />
+        </mesh>
+        <mesh position={[0.22, 1.64, 0.22]} castShadow>
+          <cylinderGeometry args={[0.08, 0.08, 0.2, 10]} />
+          <meshStandardMaterial color="#fef3c7" roughness={0.45} />
+        </mesh>
+        <mesh position={[-0.28, 1.18, 0.22]} castShadow>
+          <cylinderGeometry args={[0.09, 0.09, 0.22, 10]} />
+          <meshStandardMaterial color="#e07a5f" roughness={0.5} />
+        </mesh>
+        <mesh position={[0.04, 1.16, 0.22]} castShadow>
+          <boxGeometry args={[0.24, 0.18, 0.16]} />
+          <meshStandardMaterial color="#6f947c" roughness={0.65} />
+        </mesh>
+        <mesh position={[0.34, 1.15, 0.22]} castShadow>
+          <cylinderGeometry args={[0.085, 0.075, 0.16, 10]} />
+          <meshStandardMaterial color="#ffffff" roughness={0.35} />
+        </mesh>
+      </group>
+
+      {/* Water Dispenser & Mini Fridge along East glass wall facing West */}
+      <group position={[-9.45, 0, 5.5]} rotation={[0, -Math.PI / 2, 0]}>
+        <WaterCooler position={[0, 0, 0]} />
+      </group>
+      <group position={[-9.52, 0, 6.48]} rotation={[0, -Math.PI / 2, 0]}>
+        <CreamMiniFridge position={[0, 0, 0]} />
+      </group>
+
+      {/* Pantry Dining Table + 2 Stools */}
+      <group position={[-10.95, 0, 8.95]}>
+        <mesh position={[0, 0.035, 0]} castShadow receiveShadow>
+          <cylinderGeometry args={[0.3, 0.34, 0.05, 16]} />
+          <meshStandardMaterial color="#334155" metalness={0.38} roughness={0.5} />
+        </mesh>
+        <mesh position={[0, 0.38, 0]} castShadow>
+          <cylinderGeometry args={[0.045, 0.055, 0.68, 12]} />
+          <meshStandardMaterial color="#334155" metalness={0.38} roughness={0.5} />
+        </mesh>
+        <mesh position={[0, 0.74, 0]} castShadow receiveShadow>
+          <cylinderGeometry args={[0.62, 0.62, 0.065, 24]} />
+          <meshStandardMaterial color="#d2a575" roughness={0.65} />
+        </mesh>
+        {/* Wooden fruit bowl + 2 mugs on dining table */}
+        <mesh position={[0, 0.82, -0.05]} castShadow>
+          <cylinderGeometry args={[0.18, 0.11, 0.11, 12]} />
+          <meshStandardMaterial color="#a4754d" roughness={0.7} />
+        </mesh>
+        <mesh position={[-0.05, 0.89, -0.04]} castShadow>
+          <sphereGeometry args={[0.055, 10, 10]} />
+          <meshStandardMaterial color="#ef4444" roughness={0.45} />
+        </mesh>
+        <mesh position={[0.05, 0.89, -0.07]} castShadow>
+          <sphereGeometry args={[0.055, 10, 10]} />
+          <meshStandardMaterial color="#84cc16" roughness={0.45} />
+        </mesh>
+        <mesh position={[-0.28, 0.82, 0.16]} castShadow>
+          <cylinderGeometry args={[0.05, 0.044, 0.1, 10]} />
+          <meshStandardMaterial color="#f59e0b" roughness={0.4} />
+        </mesh>
+        <mesh position={[0.28, 0.82, 0.12]} castShadow>
+          <cylinderGeometry args={[0.05, 0.044, 0.1, 10]} />
+          <meshStandardMaterial color="#ffffff" roughness={0.35} />
+        </mesh>
+        {/* 2 warm wood stools cleanly tucked with clear walkway */}
+        <WoodBistroStool position={[-0.72, 0, 0.2]} />
+        <WoodBistroStool position={[0.72, 0, -0.2]} />
+      </group>
+
+      {/* Corner potted plant inside Pantry */}
+      <PottedPlant position={[-9.5, 0, 10.45]} scale={0.85} variant="terracotta" />
+    </group>
+  );
+}
+
+function CozyRestRoomZone() {
+  return (
+    <group>
+      {/* Soft pastel sage/cream woven rug */}
+      <mesh position={[11.25, 0.015, 7.9]} receiveShadow>
+        <boxGeometry args={[3.8, 0.026, 5.2]} />
+        <meshStandardMaterial color="#e5ece5" roughness={0.95} />
+      </mesh>
+      <mesh position={[11.25, 0.012, 7.9]}>
+        <boxGeometry args={[3.94, 0.02, 5.34]} />
+        <meshStandardMaterial color="#d4dfd5" roughness={0.95} />
+      </mesh>
+
+      {/* Cozy Nap Bed / Daybed (center [12.05, 0, 8.7], width 1.32, length 2.25) */}
+      <group position={[12.05, 0, 8.7]}>
+        {/* 4 warm oak legs */}
+        {[-0.58, 0.58].map((lx) =>
+          [-1.02, 1.02].map((lz) => (
+            <mesh key={`${lx}-${lz}`} position={[lx, 0.12, lz]} castShadow>
+              <boxGeometry args={[0.08, 0.24, 0.08]} />
+              <meshStandardMaterial color="#9e7147" roughness={0.72} />
+            </mesh>
+          )),
+        )}
+        {/* Warm oak slatted bed frame */}
+        <mesh position={[0, 0.28, 0]} castShadow receiveShadow>
+          <boxGeometry args={[1.32, 0.14, 2.25]} />
+          <meshStandardMaterial color="#be8f60" roughness={0.7} />
+        </mesh>
+        {/* Oak headboard at South end (z = 9.8 -> local z = +1.1) */}
+        <mesh position={[0, 0.68, 1.1]} castShadow receiveShadow>
+          <boxGeometry args={[1.36, 0.86, 0.09]} />
+          <meshStandardMaterial color="#b38456" roughness={0.7} />
+        </mesh>
+        {/* Plush cream mattress */}
+        <mesh position={[0, 0.46, -0.02]} castShadow receiveShadow>
+          <boxGeometry args={[1.24, 0.22, 2.12]} />
+          <meshStandardMaterial color="#fffcf5" roughness={0.9} />
+        </mesh>
+        {/* Folded warm terracotta duvet blanket & sage accent throw */}
+        <mesh position={[0, 0.52, -0.38]} castShadow receiveShadow>
+          <boxGeometry args={[1.28, 0.16, 1.32]} />
+          <meshStandardMaterial color="#d47958" roughness={0.92} />
+        </mesh>
+        <mesh position={[0, 0.55, -0.78]} castShadow>
+          <boxGeometry args={[1.3, 0.12, 0.42]} />
+          <meshStandardMaterial color="#739980" roughness={0.92} />
+        </mesh>
+        {/* 2 fluffy pillows leaning against South headboard */}
+        <mesh position={[-0.31, 0.68, 0.82]} rotation={[-0.32, 0.08, 0]} castShadow>
+          <boxGeometry args={[0.54, 0.2, 0.34]} />
+          <meshStandardMaterial color="#f5efe6" roughness={0.92} />
+        </mesh>
+        <mesh position={[0.31, 0.68, 0.82]} rotation={[-0.32, -0.08, 0]} castShadow>
+          <boxGeometry args={[0.54, 0.2, 0.34]} />
+          <meshStandardMaterial color="#efe6d8" roughness={0.92} />
+        </mesh>
+      </group>
+
+      {/* Nightstand + Warm Glowing Bedside Lamp */}
+      <group position={[10.82, 0, 9.45]}>
+        <mesh position={[0, 0.27, 0]} castShadow receiveShadow>
+          <boxGeometry args={[0.52, 0.54, 0.48]} />
+          <meshStandardMaterial color="#b98b5e" roughness={0.72} />
+        </mesh>
+        <mesh position={[0, 0.36, -0.245]}>
+          <boxGeometry args={[0.42, 0.18, 0.02]} />
+          <meshStandardMaterial color="#c99c6e" roughness={0.7} />
+        </mesh>
+        <mesh position={[0, 0.36, -0.265]}>
+          <sphereGeometry args={[0.02, 8, 8]} />
+          <meshStandardMaterial color="#d4a359" metalness={0.6} roughness={0.3} />
+        </mesh>
+        {/* Ceramic bedside lamp with warm glow */}
+        <mesh position={[0.06, 0.62, 0.04]} castShadow>
+          <cylinderGeometry args={[0.075, 0.095, 0.16, 12]} />
+          <meshStandardMaterial color="#f2eadf" roughness={0.6} />
+        </mesh>
+        <mesh position={[0.06, 0.8, 0.04]} castShadow>
+          <cylinderGeometry args={[0.12, 0.17, 0.22, 16]} />
+          <meshStandardMaterial
+            color="#fff7e6"
+            emissive="#fcd34d"
+            emissiveIntensity={0.55}
+            roughness={0.75}
+          />
+        </mesh>
+        {/* Tiny mint alarm clock & book */}
+        <mesh position={[-0.14, 0.6, -0.08]} castShadow>
+          <boxGeometry args={[0.12, 0.11, 0.07]} />
+          <meshStandardMaterial color="#6ee7b7" roughness={0.5} />
+        </mesh>
+        <mesh position={[-0.1, 0.555, 0.1]} rotation={[0, 0.2, 0]} castShadow>
+          <boxGeometry args={[0.2, 0.03, 0.15]} />
+          <meshStandardMaterial color="#60a5fa" roughness={0.75} />
+        </mesh>
+      </group>
+
+      {/* Plush Beanbag Lounge Chair near West glass wall */}
+      <group position={[9.95, 0, 7.05]}>
+        <mesh position={[0, 0.28, 0]} scale={[1.15, 0.72, 1.15]} castShadow receiveShadow>
+          <dodecahedronGeometry args={[0.48, 1]} />
+          <meshStandardMaterial color="#769b82" roughness={0.95} />
+        </mesh>
+        <mesh position={[-0.16, 0.56, 0.06]} scale={[0.8, 0.9, 0.95]} castShadow>
+          <dodecahedronGeometry args={[0.3, 1]} />
+          <meshStandardMaterial color="#678a73" roughness={0.95} />
+        </mesh>
+        {/* Cozy mustard accent cushion */}
+        <mesh position={[0.08, 0.44, -0.06]} rotation={[0.25, 0.3, -0.2]} castShadow>
+          <boxGeometry args={[0.28, 0.24, 0.12]} />
+          <meshStandardMaterial color="#eab657" roughness={0.9} />
+        </mesh>
+      </group>
+
+      {/* Cozy Woven Blanket Basket */}
+      <group position={[9.78, 0, 8.65]}>
+        <mesh position={[0, 0.22, 0]} castShadow receiveShadow>
+          <cylinderGeometry args={[0.26, 0.21, 0.44, 14]} />
+          <meshStandardMaterial color="#d2b48c" roughness={0.92} />
+        </mesh>
+        {/* Rolled cozy blankets peeking out */}
+        <mesh position={[-0.06, 0.46, 0.04]} rotation={[0.2, 0.3, 0.25]} castShadow>
+          <cylinderGeometry args={[0.08, 0.08, 0.24, 10]} />
+          <meshStandardMaterial color="#f5efe6" roughness={0.95} />
+        </mesh>
+        <mesh position={[0.08, 0.45, -0.05]} rotation={[-0.18, 0.2, -0.2]} castShadow>
+          <cylinderGeometry args={[0.08, 0.08, 0.22, 10]} />
+          <meshStandardMaterial color="#d47958" roughness={0.95} />
+        </mesh>
+      </group>
+
+      {/* Rest Room potted plant */}
+      <PottedPlant position={[12.85, 0, 4.35]} scale={0.85} variant="ceramic" />
+    </group>
+  );
+}
+
+/* ============================================================================
  * Main FloorDecor Component (Aligned to Fixed 28 x 24 Architectural Rooms)
- * - Front-Left Glass Room:  x in [-13.5, -8.8], z in [2.8, 11.2]
- * - Back-Right Glass Room:  x in [9.0, 13.5],   z in [-11.3, -2.8]
- * - Lift Lobby:             x in [-13.6, -9.2], z in [-11.3, -2.8]
- * - Front-Right Terrace:    x in [9.0, 13.5],   z in [2.8, 11.2]
+ * - Front-Left Glass Room:    x in [-13.5, -8.8], z in [2.8, 11.2]
+ * - Back-Right Glass Room:    x in [9.0, 13.5],   z in [-11.3, -2.8]
+ * - Lift Lobby:               x in [-13.6, -9.2], z in [-11.3, -2.8]
+ * - Front-Right Room/Terrace: x in [9.0, 13.5],   z in [2.8, 11.2]
  * ========================================================================== */
 
 export const FloorDecor: React.FC<FloorDecorProps> = ({
@@ -1631,17 +2090,19 @@ export const FloorDecor: React.FC<FloorDecorProps> = ({
 
   const { clockX } = useMemo(() => computeBackWallBays(floorWidth), [floorWidth]);
 
-  // Lamp tucked cleanly inside the Front-Left Glass Room without blocking the North doorway (z = 2.8)
+  // Lamp positioned in Front-Right Rest Room for engineering, Front-Left Glass Room otherwise
   const lampPos: [number, number, number] =
-    theme === 'creative'
-      ? [-12.95, 0, 5.55]
-      : theme === 'pantry'
-        ? [-12.95, 0, 5.85]
-        : [-12.95, 0, 6.05];
+    theme === 'engineering'
+      ? [9.6, 0, 10.25]
+      : theme === 'creative'
+        ? [-12.95, 0, 5.55]
+        : theme === 'pantry'
+          ? [-12.95, 0, 5.85]
+          : [-12.95, 0, 6.05];
 
-  // Trash bin tucked inside the Back-Right Glass Room near the west interior wall (clear of coffee/pantry mats)
+  // Trash bin tucked in Pantry SW corner for engineering (zero trash bins in Server Room!)
   const trashPos: [number, number, number] =
-    theme === 'engineering' ? [10.4, 0, -10.65] : [9.42, 0, -8.0];
+    theme === 'engineering' ? [-13.05, 0, 10.45] : [9.42, 0, -8.0];
 
   return (
     <group>
@@ -1650,14 +2111,18 @@ export const FloorDecor: React.FC<FloorDecorProps> = ({
       <StandingFloorLamp position={lampPos} />
       <OfficeTrashBin position={trashPos} />
 
-      {/* Front-Right Reading & Plant Corner (open airy terrace beside L{n} badge) */}
-      <PottedPlant
-        position={[12.55, 0, 10.35]}
-        scale={1.0}
-        variant={theme === 'lobby' || theme === 'pantry' ? 'tall' : 'terracotta'}
-      />
-      <PottedPlant position={[12.6, 0, 8.9]} scale={0.78} variant="ceramic" />
-      <WoodBistroStool position={[11.65, 0, 9.75]} />
+      {/* Default Front-Right Reading & Plant Corner (hidden on engineering where Rest Room lives) */}
+      {theme !== 'engineering' && (
+        <>
+          <PottedPlant
+            position={[12.55, 0, 10.35]}
+            scale={1.0}
+            variant={theme === 'lobby' || theme === 'pantry' ? 'tall' : 'terracotta'}
+          />
+          <PottedPlant position={[12.6, 0, 8.9]} scale={0.78} variant="ceramic" />
+          <WoodBistroStool position={[11.65, 0, 9.75]} />
+        </>
+      )}
 
       {/* Lift Lobby corner plant (clear of ElevatorCore & Suite 1 glass wall) */}
       <PottedPlant position={[-10.1, 0, -10.8]} scale={0.85} variant="ceramic" />
@@ -1665,19 +2130,20 @@ export const FloorDecor: React.FC<FloorDecorProps> = ({
       {/* Theme-specific rich 3D office furniture */}
       {theme === 'engineering' && (
         <>
-          {/* Back-Right Glass Server & Utility Room */}
-          <ServerRack42U position={[12.6, 0, -10.55]} />
-          <WaterCooler position={[11.4, 0, -10.6]} />
-          <WoodenFilingCabinet position={[9.62, 0, -7.8]} />
-          <PottedPlant position={[12.75, 0, -5.8]} scale={0.85} variant="ceramic" />
+          {/* Dedicated Back-Right Glass Server Room (server equipment only) */}
+          <EngineeringServerRoom />
 
-          {/* Back wall inside Suite 2 (between sunlit windows) */}
+          {/* Dedicated Front-Left Glass Engineering Pantry Room */}
+          <EngineeringPantryZone />
+
+          {/* Dedicated Front-Right Glass Cozy Rest / Nap Room */}
+          <CozyRestRoomZone />
+
+          {/* Back wall status dashboard TV inside Suite 2 (between sunlit windows) */}
           <StatusDashboardTV position={[6.95, 2.15, -halfD + 0.05]} />
 
-          {/* Left wall Kanban boards (Lift Lobby + Front-Left Glass Breakout Room) */}
+          {/* Lift Lobby Kanban whiteboard */}
           <KanbanWhiteboard position={[-halfW + 0.05, 2.04, -6.2]} />
-          <KanbanWhiteboard position={[-halfW + 0.05, 2.04, 7.6]} />
-          <PottedPlant position={[-12.55, 0, 10.1]} scale={0.98} variant="tall" />
         </>
       )}
 
