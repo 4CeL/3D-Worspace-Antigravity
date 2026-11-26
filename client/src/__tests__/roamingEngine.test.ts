@@ -366,4 +366,197 @@ describe('RoamingController', () => {
       bubble: null,
     });
   });
+
+  it('routes side-seated subagents around the shared conference table without intersecting the tabletop and restores inward facing on return', () => {
+    const floors: FloorConfig[] = [{ id: 'floor-1', index: 1, name: 'Lantai 1', theme: 'engineering' }];
+    const agents: Record<string, AgentNode> = {
+      'lead-1': makeAgent('lead-1', null, 'lead-1', 'editing'),
+      'sub-west': makeAgent('sub-west', 'lead-1', 'lead-1', 'idle'),
+      'sub-east': makeAgent('sub-east', 'lead-1', 'lead-1', 'idle'),
+      'sub-west-2': makeAgent('sub-west-2', 'lead-1', 'lead-1', 'idle'),
+    };
+    const clusters: TeamCluster[] = [
+      {
+        rootId: 'lead-1',
+        projectName: 'Shared Table Team',
+        title: 'Sprint',
+        leadAgentId: 'lead-1',
+        agentIds: ['lead-1', 'sub-west', 'sub-east', 'sub-west-2'],
+        floorId: 'floor-1',
+        lastUpdatedAt: Date.now(),
+      },
+    ];
+
+    const layout = computeOfficeLayout(clusters, agents, floors);
+    const table = layout.clusters[0].table!;
+    const subDesk = layout.desks['sub-west'];
+    expect(Math.abs(subDesk.rotationY)).toBeCloseTo(Math.PI / 2);
+
+    const tableMinX = table.center[0] - table.width / 2;
+    const tableMaxX = table.center[0] + table.width / 2;
+    const tableMinZ = table.center[2] - table.length / 2;
+    const tableMaxZ = table.center[2] + table.length / 2;
+
+    const controller = new RoamingController();
+    controller.syncLayout(layout, agents);
+
+    // Initial seated facing points inward toward the shared table (desk.rotationY + Math.PI)
+    const initial = controller.getState('sub-west')!;
+    expect(initial.rotationY).toBeCloseTo(subDesk.rotationY + Math.PI);
+
+    // Walk out from side seat to a waypoint outside the suite, checking every frame never enters tabletop AABB
+    let reachedOutsideSuite = false;
+    for (let i = 0; i < 240; i++) {
+      controller.step(0.05);
+      const st = controller.getState('sub-west')!;
+      const insideTable =
+        st.x > tableMinX && st.x < tableMaxX && st.z > tableMinZ && st.z < tableMaxZ;
+      expect(insideTable).toBe(false);
+      if (Math.abs(st.z) < 0.4) {
+        reachedOutsideSuite = true;
+        break;
+      }
+    }
+    expect(reachedOutsideSuite).toBe(true);
+
+    // Assign work so sub-west returns through doorway and around the table to its side chair
+    const workingAgents: Record<string, AgentNode> = {
+      ...agents,
+      'sub-west': makeAgent('sub-west', 'lead-1', 'lead-1', 'editing'),
+    };
+    controller.syncLayout(layout, workingAgents);
+
+    let returnedSeated = false;
+    for (let i = 0; i < 240; i++) {
+      controller.step(0.05);
+      const st = controller.getState('sub-west')!;
+      const insideTable =
+        st.x > tableMinX && st.x < tableMaxX && st.z > tableMinZ && st.z < tableMaxZ;
+      expect(insideTable).toBe(false);
+      if (st.mode === 'seated') {
+        returnedSeated = true;
+        break;
+      }
+    }
+    expect(returnedSeated).toBe(true);
+
+    const finalState = controller.getState('sub-west')!;
+    const expectedSeatX = subDesk.position[0] + 0.56 * Math.sin(subDesk.rotationY);
+    const expectedSeatZ = subDesk.position[2] + 0.56 * Math.cos(subDesk.rotationY);
+    expect(Math.hypot(finalState.x - expectedSeatX, finalState.z - expectedSeatZ)).toBeLessThan(0.05);
+    expect(finalState.rotationY).toBeCloseTo(subDesk.rotationY + Math.PI);
+  });
+
+  it('routes South-suite side-seated subagents around the table on exit, mid-suite interrupt, and opposite-foot exit/return', () => {
+    const floors: FloorConfig[] = [{ id: 'floor-1', index: 1, name: 'Lantai 1', theme: 'lobby' }];
+    const agents: Record<string, AgentNode> = {
+      'lead-1': makeAgent('lead-1', null, 'lead-1', 'editing'),
+      'lead-2': makeAgent('lead-2', null, 'lead-2', 'editing'),
+      'lead-3': makeAgent('lead-3', null, 'lead-3', 'editing'),
+    };
+    const team3Ids = ['lead-3'];
+    for (let i = 1; i <= 7; i++) {
+      const id = `south-sub-${i}`;
+      agents[id] = makeAgent(id, 'lead-3', 'lead-3', 'idle');
+      team3Ids.push(id);
+    }
+
+    const clusters: TeamCluster[] = [
+      {
+        rootId: 'lead-1',
+        projectName: 'P1',
+        title: 'T1',
+        leadAgentId: 'lead-1',
+        agentIds: ['lead-1'],
+        floorId: 'floor-1',
+        lastUpdatedAt: Date.now(),
+      },
+      {
+        rootId: 'lead-2',
+        projectName: 'P2',
+        title: 'T2',
+        leadAgentId: 'lead-2',
+        agentIds: ['lead-2'],
+        floorId: 'floor-1',
+        lastUpdatedAt: Date.now(),
+      },
+      {
+        rootId: 'lead-3',
+        projectName: 'South Team',
+        title: 'T3',
+        leadAgentId: 'lead-3',
+        agentIds: team3Ids,
+        floorId: 'floor-1',
+        lastUpdatedAt: Date.now(),
+      },
+    ];
+
+    const layout = computeOfficeLayout(clusters, agents, floors);
+    const southCluster = layout.clusters[2];
+    expect(southCluster.suiteId).toBe('suite-3');
+    const table = southCluster.table!;
+    const tableMinX = table.center[0] - table.width / 2;
+    const tableMaxX = table.center[0] + table.width / 2;
+    const tableMinZ = table.center[2] - table.length / 2;
+    const tableMaxZ = table.center[2] + table.length / 2;
+
+    const sideSubId = 'south-sub-1'; // West side in South suite
+    const footSubId = 'south-sub-7'; // Opposite-foot end in South suite (doorSide === 'north')
+    expect(layout.desks[sideSubId].rotationY).toBeCloseTo(-Math.PI / 2);
+    expect(layout.desks[footSubId].rotationY).toBeCloseTo(Math.PI);
+
+    const controller = new RoamingController();
+    controller.syncLayout(layout, agents);
+
+    // Step until sideSubId has rounded the north end of the South-suite table near doorway (still inside suite)
+    let interruptedMidSuite = false;
+    for (let i = 0; i < 200; i++) {
+      controller.step(0.05);
+      for (const id of [sideSubId, footSubId]) {
+        const st = controller.getState(id)!;
+        const insideTable =
+          st.x > tableMinX && st.x < tableMaxX && st.z > tableMinZ && st.z < tableMaxZ;
+        expect(insideTable).toBe(false);
+      }
+      const sideSt = controller.getState(sideSubId)!;
+      if (
+        !interruptedMidSuite &&
+        sideSt.mode === 'walking_out' &&
+        sideSt.z > 2.95 &&
+        sideSt.z < 3.65 &&
+        Math.abs(sideSt.x - southCluster.doorPosition![0]) < 1.2
+      ) {
+        // Mid-suite work interrupt near doorway
+        controller.syncLayout(layout, {
+          ...agents,
+          [sideSubId]: makeAgent(sideSubId, 'lead-3', 'lead-3', 'editing'),
+        });
+        interruptedMidSuite = true;
+        break;
+      }
+    }
+    expect(interruptedMidSuite).toBe(true);
+
+    // Continue until sideSubId returns cleanly around table to seated and footSubId exits to corridor
+    let sideReturned = false;
+    let footExited = false;
+    for (let i = 0; i < 240; i++) {
+      controller.step(0.05);
+      for (const id of [sideSubId, footSubId]) {
+        const st = controller.getState(id)!;
+        const insideTable =
+          st.x > tableMinX && st.x < tableMaxX && st.z > tableMinZ && st.z < tableMaxZ;
+        expect(insideTable).toBe(false);
+      }
+      if (controller.getState(sideSubId)?.mode === 'seated') sideReturned = true;
+      if (Math.abs(controller.getState(footSubId)!.z) < 0.4) footExited = true;
+      if (sideReturned && footExited) break;
+    }
+
+    expect(sideReturned).toBe(true);
+    expect(footExited).toBe(true);
+    expect(controller.getState(sideSubId)!.rotationY).toBeCloseTo(
+      layout.desks[sideSubId].rotationY + Math.PI,
+    );
+  });
 });

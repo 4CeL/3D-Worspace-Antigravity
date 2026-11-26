@@ -389,9 +389,15 @@ export class RoamingController {
     return {
       seatX: deskX + 0.56 * sinR,
       seatZ: deskZ + 0.56 * cosR,
-      exitX: deskX + 1.02 * sinR,
-      exitZ: deskZ + 1.02 * cosR,
+      exitX: deskX + 1.15 * sinR,
+      exitZ: deskZ + 1.15 * cosR,
     };
+  }
+
+  private getSuiteDoorInsideZ(rec: InternalAgentRecord): number {
+    if (!rec.suiteDoor) return rec.exitZ;
+    // Step 0.65m inside the suite doorway (clear of the conference table end)
+    return rec.suiteDoor.z < 0 ? rec.suiteDoor.z - 0.65 : rec.suiteDoor.z + 0.65;
   }
 
   private stepSeated(rec: InternalAgentRecord, dt: number): void {
@@ -552,8 +558,8 @@ export class RoamingController {
     const insideOwnSuite =
       rec.suiteDoor !== null &&
       Math.sign(rec.z) === Math.sign(rec.deskZ) &&
-      Math.abs(rec.z) > 2.6 &&
-      Math.abs(rec.x - rec.suiteDoor.x) < 4.2;
+      Math.abs(rec.z) > 2.85 &&
+      Math.abs(rec.x - rec.suiteDoor.x) < 4.0;
 
     if (!insideOwnSuite && rec.suiteDoor) {
       const physicalRoomDoor = this.getEnclosingRoomDoor(rec.x, rec.z);
@@ -571,13 +577,20 @@ export class RoamingController {
         path.push({ x: rec.x, z: CORRIDOR_Z });
       }
 
-      // Walk along Central Corridor to own suite doorway, then enter cleanly
+      // Walk along Central Corridor to own suite doorway, enter, and route around shared conference table
+      const doorInsideZ = this.getSuiteDoorInsideZ(rec);
       path.push({ x: rec.suiteDoor.x, z: CORRIDOR_Z });
       path.push({ x: rec.suiteDoor.x, z: rec.suiteDoor.z });
+      path.push({ x: rec.suiteDoor.x, z: doorInsideZ });
+      path.push({ x: rec.exitX, z: doorInsideZ });
+    } else if (insideOwnSuite && rec.suiteDoor && Math.abs(rec.x - rec.exitX) > 0.35) {
+      // Interrupted inside own suite near doorway — route around the end of the shared table
+      const doorInsideZ = this.getSuiteDoorInsideZ(rec);
+      path.push({ x: rec.exitX, z: doorInsideZ });
     }
 
     const distToExit = Math.hypot(rec.exitX - rec.x, rec.exitZ - rec.z);
-    if (distToExit > 0.35) {
+    if (distToExit > 0.35 || path.length > 0) {
       path.push({ x: rec.exitX, z: rec.exitZ });
     }
     path.push({ x: rec.seatX, z: rec.seatZ });
@@ -807,6 +820,10 @@ export class RoamingController {
     if (fromDesk) {
       path.push({ x: rec.exitX, z: rec.exitZ });
       if (rec.suiteDoor) {
+        const doorInsideZ = this.getSuiteDoorInsideZ(rec);
+        // Walk along the side aisle past the shared conference table before turning toward the doorway
+        path.push({ x: rec.exitX, z: doorInsideZ });
+        path.push({ x: rec.suiteDoor.x, z: doorInsideZ });
         path.push({ x: rec.suiteDoor.x, z: rec.suiteDoor.z });
         path.push({ x: rec.suiteDoor.x, z: CORRIDOR_Z });
       }

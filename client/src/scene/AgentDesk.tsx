@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Html } from '@react-three/drei';
 import type { AgentNode, AgentStatus } from '@office/shared';
 import { AgentAvatar } from './AgentAvatar';
@@ -11,6 +11,7 @@ interface AgentDeskProps {
   isSelected: boolean;
   showLabels: boolean;
   isAway?: boolean;
+  sharedTable?: boolean;
   onSelect: (agentId: string) => void;
 }
 
@@ -39,10 +40,22 @@ export const AgentDesk: React.FC<AgentDeskProps> = ({
   isSelected,
   showLabels,
   isAway = false,
+  sharedTable = false,
   onSelect,
 }) => {
+  const hoveredRef = useRef(false);
   const [hovered, setHovered] = useState(false);
-  const style = STATUS_STYLE[agent.status];
+
+  useEffect(() => {
+    return () => {
+      if (hoveredRef.current) {
+        hoveredRef.current = false;
+        document.body.style.cursor = 'auto';
+      }
+    };
+  }, []);
+
+  const style = STATUS_STYLE[agent.status] ?? STATUS_STYLE.idle;
   const deskWidth = isLead ? 1.72 : 1.44;
   const isActive = agent.status !== 'idle';
 
@@ -65,18 +78,23 @@ export const AgentDesk: React.FC<AgentDeskProps> = ({
       }}
       onPointerOver={(e) => {
         e.stopPropagation();
+        hoveredRef.current = true;
         setHovered(true);
         document.body.style.cursor = 'pointer';
       }}
       onPointerOut={() => {
+        hoveredRef.current = false;
         setHovered(false);
         document.body.style.cursor = 'auto';
       }}
     >
       {/* Selection / Hover ring on floor */}
       {(isSelected || hovered) && (
-        <mesh position={[0, 0.03, 0.15]} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[1.05, 1.2, 32]} />
+        <mesh
+          position={[0, 0.03, sharedTable ? 0.56 : 0.15]}
+          rotation={[-Math.PI / 2, 0, 0]}
+        >
+          <ringGeometry args={sharedTable ? [0.52, 0.64, 28] : [1.05, 1.2, 32]} />
           <meshBasicMaterial
             color={isSelected ? '#10b981' : '#f59e0b'}
             transparent
@@ -85,20 +103,23 @@ export const AgentDesk: React.FC<AgentDeskProps> = ({
         </mesh>
       )}
 
-      {/* Desk surface */}
-      <mesh position={[0, 0.74, -0.12]} castShadow receiveShadow>
-        <boxGeometry args={[deskWidth, 0.08, 0.86]} />
-        <meshStandardMaterial color="#fffdf9" roughness={0.6} />
-      </mesh>
-
-      {/* Desk legs */}
-      {[-deskWidth / 2 + 0.1, deskWidth / 2 - 0.1].map((lx) =>
-        [-0.46, 0.22].map((lz) => (
-          <mesh key={`${lx}-${lz}`} position={[lx, 0.37, lz]} castShadow>
-            <boxGeometry args={[0.07, 0.74, 0.07]} />
-            <meshStandardMaterial color="#c9a57a" roughness={0.75} />
+      {/* Standalone desk surface & legs (omitted when seated at a shared conference table) */}
+      {!sharedTable && (
+        <>
+          <mesh position={[0, 0.74, -0.12]} castShadow receiveShadow>
+            <boxGeometry args={[deskWidth, 0.08, 0.86]} />
+            <meshStandardMaterial color="#fffdf9" roughness={0.6} />
           </mesh>
-        )),
+
+          {[-deskWidth / 2 + 0.1, deskWidth / 2 - 0.1].map((lx) =>
+            [-0.46, 0.22].map((lz) => (
+              <mesh key={`${lx}-${lz}`} position={[lx, 0.37, lz]} castShadow>
+                <boxGeometry args={[0.07, 0.74, 0.07]} />
+                <meshStandardMaterial color="#c9a57a" roughness={0.75} />
+              </mesh>
+            )),
+          )}
+        </>
       )}
 
       {/* Keyboard */}
@@ -187,7 +208,12 @@ export const AgentDesk: React.FC<AgentDeskProps> = ({
 
       {/* Floating desk file badge (rendered on RoamingAgent while away) */}
       {!isAway && (showLabels || isSelected) && (
-        <Html position={[0, 2.38, 0]} center distanceFactor={14} zIndexRange={[10, 0]}>
+        <Html
+          position={[0, 2.38, sharedTable ? 0.56 : 0]}
+          center
+          distanceFactor={14}
+          zIndexRange={[10, 0]}
+        >
           <button
             type="button"
             onClick={(e) => {

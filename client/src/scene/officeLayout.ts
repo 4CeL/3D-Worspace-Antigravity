@@ -35,6 +35,12 @@ export interface GlassSuiteSlot {
   doorSide: 'south' | 'north';
 }
 
+export interface SharedTableSpec {
+  center: [number, number, number];
+  width: number;
+  length: number;
+}
+
 export interface DeskPlacement {
   agentId: string;
   clusterId: string;
@@ -51,6 +57,7 @@ export interface ClusterPlacement {
   floorId: string;
   suiteId?: string;
   doorPosition?: [number, number];
+  table?: SharedTableSpec;
   projectName: string;
   title: string;
   center: [number, number, number];
@@ -82,6 +89,7 @@ export interface OfficeLayout {
 }
 
 const RUG_PALETTE = ['#dce8df', '#e4e1f2', '#f3e5d2', '#dae9f5', '#f2e0e4'];
+const SHARED_TABLE_WIDTH = 2.2;
 
 interface SuiteTemplate {
   id: string;
@@ -155,58 +163,49 @@ function createFloorSuites(y: number): GlassSuiteSlot[] {
 }
 
 /**
- * Computes neat, non-overlapping desk coordinates strictly inside a Glass Suite's
- * interior bounds (>= 2.2 spacing between desks, >= 0.9 physical clearance from all 4 glass walls).
+ * Arranges ONE continuous shared conference/meeting worktable centered inside
+ * the Glass Suite with:
+ * - Main Agent at the head (away from the doorway, facing down the table)
+ * - Subagents seated along both West & East long sides facing each other inward
+ *   (with clean >= 1.55 along-side spacing and >= 1.80 across-table spacing).
  */
-function placeDesksInSuite(
+function placeSharedTableInSuite(
   suite: GlassSuiteSlot,
   cluster: TeamCluster,
   effectiveLeadId: string,
   agents: Record<string, AgentNode>,
   floorId: string,
   overflowPass: number,
-): DeskPlacement[] {
+): { table: SharedTableSpec; desks: DeskPlacement[] } {
   const [cx, y, cz] = suite.center;
   const subIds = cluster.agentIds.filter((id) => id !== effectiveLeadId);
-  const subCount = subIds.length;
+
+  // Keep primary teams centered; shift slightly only for >4-team overflow on one floor
+  const overflowOffsetX = overflowPass === 0 ? 0 : overflowPass % 2 === 1 ? 1.5 : -1.5;
+  const tableCenterX = cx + overflowOffsetX;
+  const tableWidth = SHARED_TABLE_WIDTH;
+
+  const sideSeatIds = subIds.slice(0, 6);
+  const extraFootIds = subIds.slice(6);
+  const sideRows = Math.max(1, Math.ceil(sideSeatIds.length / 2));
+  const maxTableLen = Math.min(5.2, suite.depth - 3.2);
+  const tableLength = Math.min(maxTableLen, Math.max(3.4, sideRows * 1.65 + 1.45));
+
+  const table: SharedTableSpec = {
+    center: [tableCenterX, y, cz],
+    width: tableWidth,
+    length: tableLength,
+  };
+
   const placed: DeskPlacement[] = [];
-
-  // Subtle shift only if >4 clusters overflow onto an already-occupied suite
-  const overflowOffsetX = overflowPass === 0 ? 0 : overflowPass % 2 === 1 ? 1.15 : -1.15;
-  const overflowOffsetZ = overflowPass === 0 ? 0 : 1.15;
-
-  const maxCenterOffsetX = suite.width / 2 - 1.65;
-  const maxCenterOffsetZ = suite.depth / 2 - 1.7;
-
-  const clampX = (x: number) =>
-    Math.max(cx - maxCenterOffsetX, Math.min(cx + maxCenterOffsetX, x));
-  const clampZ = (z: number) =>
-    Math.max(cz - maxCenterOffsetZ, Math.min(cz + maxCenterOffsetZ, z));
-
   const leadAgent = agents[effectiveLeadId];
+  const isNorthSuite = suite.doorSide === 'south';
+  const halfLen = tableLength / 2;
+  const halfW = tableWidth / 2;
 
-  if (subCount === 0) {
-    placed.push({
-      agentId: effectiveLeadId,
-      clusterId: cluster.rootId,
-      floorId,
-      suiteId: suite.id,
-      doorPosition: [suite.doorPosition[0], suite.doorPosition[1]],
-      isLead: leadAgent ? !leadAgent.isSubagent : true,
-      position: [clampX(cx + overflowOffsetX), y, clampZ(cz + overflowOffsetZ)],
-      rotationY: 0,
-    });
-    return placed;
-  }
-
-  const subCols = subCount <= 3 ? subCount : 3;
-  const subRows = Math.ceil(subCount / subCols);
-  const spacingX = subCols <= 2 ? 2.6 : 2.35;
-  const spacingZ = subRows === 1 ? 2.5 : 2.25;
-
-  // Center the lead + subagent rows vertically inside the suite
-  const totalDepthSpan = subRows * spacingZ;
-  const leadZ = clampZ(cz - totalDepthSpan / 2 - (subRows > 1 ? 0.15 : 0.25) + overflowOffsetZ);
+  // Main Agent sits at the head of the table, away from the doorway, facing down the table
+  const leadZ = isNorthSuite ? cz - halfLen + 0.18 : cz + halfLen - 0.18;
+  const leadRotY = isNorthSuite ? Math.PI : 0;
 
   placed.push({
     agentId: effectiveLeadId,
@@ -215,19 +214,28 @@ function placeDesksInSuite(
     suiteId: suite.id,
     doorPosition: [suite.doorPosition[0], suite.doorPosition[1]],
     isLead: leadAgent ? !leadAgent.isSubagent : true,
-    position: [clampX(cx + overflowOffsetX), y, leadZ],
-    rotationY: 0,
+    position: [tableCenterX, y, leadZ],
+    rotationY: leadRotY,
   });
 
-  subIds.forEach((subId, subIdx) => {
-    const sCol = subIdx % subCols;
-    const sRow = Math.floor(subIdx / subCols);
-    const itemsInRow = Math.min(subCols, subCount - sRow * subCols);
-    const rowWidth = (itemsInRow - 1) * spacingX;
-    const x = clampX(cx - rowWidth / 2 + sCol * spacingX + overflowOffsetX);
-    const z = clampZ(leadZ + (sRow + 1) * spacingZ);
+  // Compute evenly distributed Z coordinates along the West & East long sides
+  // Leave >= 1.40 clearance from the Lead's head end so monitors & elbows never crowd
+  const footMargin = extraFootIds.length > 0 ? 1.35 : 0.55;
+  const zNearHead = isNorthSuite ? cz - halfLen + 1.4 : cz + halfLen - 1.4;
+  const zNearFoot = isNorthSuite ? cz + halfLen - footMargin : cz - halfLen + footMargin;
 
+  sideSeatIds.forEach((subId, idx) => {
+    const isWest = idx % 2 === 0;
+    const rowIdx = Math.floor(idx / 2);
+    const z =
+      sideRows === 1
+        ? (zNearHead + zNearFoot) / 2
+        : zNearHead + (rowIdx / (sideRows - 1)) * (zNearFoot - zNearHead);
+
+    const x = isWest ? tableCenterX - halfW + 0.18 : tableCenterX + halfW - 0.18;
+    const rotationY = isWest ? -Math.PI / 2 : Math.PI / 2;
     const agent = agents[subId];
+
     placed.push({
       agentId: subId,
       clusterId: cluster.rootId,
@@ -236,11 +244,30 @@ function placeDesksInSuite(
       doorPosition: [suite.doorPosition[0], suite.doorPosition[1]],
       isLead: agent ? !agent.isSubagent : false,
       position: [x, y, z],
-      rotationY: Math.PI * 0.035 * (sCol % 2 === 0 ? 1 : -1),
+      rotationY,
     });
   });
 
-  return placed;
+  // Clean opposite-head seating for any extra subagents beyond 6
+  extraFootIds.forEach((subId, idx) => {
+    const footZ = isNorthSuite ? cz + halfLen - 0.18 : cz - halfLen + 0.18;
+    const footRotY = isNorthSuite ? 0 : Math.PI;
+    const spreadX =
+      extraFootIds.length === 1 ? 0 : (idx - (extraFootIds.length - 1) / 2) * 1.1;
+    const agent = agents[subId];
+    placed.push({
+      agentId: subId,
+      clusterId: cluster.rootId,
+      floorId,
+      suiteId: suite.id,
+      doorPosition: [suite.doorPosition[0], suite.doorPosition[1]],
+      isLead: agent ? !agent.isSubagent : false,
+      position: [tableCenterX + spreadX, y, footZ],
+      rotationY: footRotY,
+    });
+  });
+
+  return { table, desks: placed };
 }
 
 export function computeOfficeLayout(
@@ -289,11 +316,21 @@ export function computeOfficeLayout(
       const suite = suites[idx % suites.length];
       const overflowPass = Math.floor(idx / suites.length);
 
+      const { table, desks: suiteDesks } = placeSharedTableInSuite(
+        suite,
+        cluster,
+        effectiveLeadId,
+        agents,
+        floor.id,
+        overflowPass,
+      );
+
       const placement: ClusterPlacement = {
         rootId: cluster.rootId,
         floorId: floor.id,
         suiteId: suite.id,
         doorPosition: [suite.doorPosition[0], suite.doorPosition[1]],
+        table,
         projectName: cluster.projectName,
         title: cluster.title,
         center: [suite.center[0], y, suite.center[2]],
@@ -307,14 +344,6 @@ export function computeOfficeLayout(
       floorClusterPlacements.push(placement);
       allClusterPlacements.push(placement);
 
-      const suiteDesks = placeDesksInSuite(
-        suite,
-        cluster,
-        effectiveLeadId,
-        agents,
-        floor.id,
-        overflowPass,
-      );
       for (const d of suiteDesks) {
         desks[d.agentId] = d;
       }

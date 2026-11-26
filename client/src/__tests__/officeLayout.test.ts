@@ -55,7 +55,7 @@ describe('computeOfficeLayout', () => {
     expect(soloLayout.floors[0].suites).toHaveLength(4);
   });
 
-  it('assigns 4 multi-agent teams into 4 glass suites inside interior bounds with non-overlapping desks', () => {
+  it('assigns 4 multi-agent teams into 4 glass suites with one shared conference table and facing seats', () => {
     const clusters: TeamCluster[] = [];
     const agents: Record<string, AgentNode> = {};
 
@@ -83,27 +83,62 @@ describe('computeOfficeLayout', () => {
     expect(layout.floors[0].suites).toHaveLength(4);
 
     const suitesById = new Map(layout.floors[0].suites.map((s) => [s.id, s]));
+    const clustersById = new Map(layout.clusters.map((c) => [c.rootId, c]));
     const allDesks = Object.values(layout.desks);
     expect(allDesks).toHaveLength(16);
 
-    // Every desk stays strictly inside its assigned Glass Suite interior bounds with wall clearance
+    // Every cluster has ONE centered shared conference table well inside its Glass Suite
+    for (const cluster of layout.clusters) {
+      expect(cluster.table).toBeDefined();
+      const table = cluster.table!;
+      const suite = suitesById.get(cluster.suiteId!)!;
+      expect(table.width).toBeCloseTo(2.2);
+      expect(table.length).toBeGreaterThanOrEqual(3.4);
+      expect(table.length).toBeLessThanOrEqual(5.2);
+      expect(Math.abs(table.center[0] - suite.center[0]) + table.width / 2).toBeLessThanOrEqual(
+        suite.width / 2 - 1.5,
+      );
+      expect(Math.abs(table.center[2] - suite.center[2]) + table.length / 2).toBeLessThanOrEqual(
+        suite.depth / 2 - 1.5,
+      );
+    }
+
+    // Every seat has its monitor ON the shared tabletop and its chair strictly inside the Glass Suite
     for (const desk of allDesks) {
       expect(desk.suiteId).toBeDefined();
       expect(desk.doorPosition).toBeDefined();
       const suite = suitesById.get(desk.suiteId!)!;
-      expect(suite).toBeDefined();
+      const table = clustersById.get(desk.clusterId)!.table!;
       const [sx, , sz] = suite.center;
-      expect(Math.abs(desk.position[0] - sx)).toBeLessThanOrEqual(suite.width / 2 - 1.5);
-      expect(Math.abs(desk.position[2] - sz)).toBeLessThanOrEqual(suite.depth / 2 - 1.5);
+      const sinR = Math.sin(desk.rotationY);
+      const cosR = Math.cos(desk.rotationY);
+
+      if (desk.isLead) {
+        expect(desk.rotationY).toBeCloseTo(suite.doorSide === 'south' ? Math.PI : 0);
+      } else {
+        expect(Math.abs(desk.rotationY)).toBeCloseTo(Math.PI / 2);
+      }
+
+      // Monitor center (local z = -0.34) rests strictly inside the shared tabletop
+      const monX = desk.position[0] - 0.34 * sinR;
+      const monZ = desk.position[2] - 0.34 * cosR;
+      expect(Math.abs(monX - table.center[0])).toBeLessThanOrEqual(table.width / 2 - 0.15);
+      expect(Math.abs(monZ - table.center[2])).toBeLessThanOrEqual(table.length / 2 - 0.15);
+
+      // Chair back (local z = +0.90) stays well inside the Glass Suite walls
+      const chairBackX = desk.position[0] + 0.9 * sinR;
+      const chairBackZ = desk.position[2] + 0.9 * cosR;
+      expect(Math.abs(chairBackX - sx)).toBeLessThanOrEqual(suite.width / 2 - 0.6);
+      expect(Math.abs(chairBackZ - sz)).toBeLessThanOrEqual(suite.depth / 2 - 0.6);
     }
 
-    // All 16 desks maintain clean non-overlapping spacing >= 2.1
+    // All 16 seats maintain clean non-overlapping spacing >= 1.45
     for (let i = 0; i < allDesks.length; i++) {
       for (let j = i + 1; j < allDesks.length; j++) {
         const dx = allDesks[i].position[0] - allDesks[j].position[0];
         const dz = allDesks[i].position[2] - allDesks[j].position[2];
         const dist = Math.hypot(dx, dz);
-        expect(dist).toBeGreaterThanOrEqual(2.1);
+        expect(dist).toBeGreaterThanOrEqual(1.45);
       }
     }
   });
@@ -229,7 +264,7 @@ describe('computeOfficeLayout', () => {
     expect(layout.floors.map((f) => f.theme)).toEqual(['pantry', 'lobby', 'creative']);
   });
 
-  it('keeps desks, privacy fins, and chairs strictly inside glass suite walls for 1, 3, 5, and 7 agents and >4 overflow teams', () => {
+  it('keeps shared tables, monitors, and rotated chairs strictly inside glass suite walls for 1, 3, 5, and 7 agents and >4 overflow teams', () => {
     const teamSizes = [1, 3, 5, 7, 2]; // 5th team overflows into Suite 1
     const clusters: TeamCluster[] = [];
     const agents: Record<string, AgentNode> = {};
@@ -257,20 +292,39 @@ describe('computeOfficeLayout', () => {
     const layout = computeOfficeLayout(clusters, agents);
     const suitesById = new Map(layout.floors[0].suites.map((s) => [s.id, s]));
 
+    for (const cluster of layout.clusters) {
+      const suite = suitesById.get(cluster.suiteId!)!;
+      const table = cluster.table!;
+      expect(table).toBeDefined();
+      expect(Math.abs(table.center[0] - suite.center[0]) + table.width / 2).toBeLessThan(
+        suite.width / 2 - 0.5,
+      );
+      expect(Math.abs(table.center[2] - suite.center[2]) + table.length / 2).toBeLessThan(
+        suite.depth / 2 - 0.5,
+      );
+    }
+
     for (const desk of Object.values(layout.desks)) {
       const suite = suitesById.get(desk.suiteId!)!;
       const [sx, , sz] = suite.center;
       const halfW = suite.width / 2;
       const halfD = suite.depth / 2;
-      const deskHalfW = desk.isLead ? 0.86 : 0.72;
-      // Physical footprint: X +/- deskHalfW, privacy fin at dz - 0.57, chair back at dz + 0.96
-      expect(desk.position[0] - deskHalfW).toBeGreaterThan(sx - halfW + 0.4);
-      expect(desk.position[0] + deskHalfW).toBeLessThan(sx + halfW - 0.4);
-      expect(desk.position[2] - 0.57).toBeGreaterThan(sz - halfD + 0.4);
-      expect(desk.position[2] + 0.96).toBeLessThan(sz + halfD - 0.4);
+      const sinR = Math.sin(desk.rotationY);
+      const cosR = Math.cos(desk.rotationY);
+
+      // Rotated chair back (local [0, +0.92]) and monitor (local [0, -0.36]) stay strictly inside glass walls
+      const chairX = desk.position[0] + 0.92 * sinR;
+      const chairZ = desk.position[2] + 0.92 * cosR;
+      const monX = desk.position[0] - 0.36 * sinR;
+      const monZ = desk.position[2] - 0.36 * cosR;
+
+      expect(Math.abs(chairX - sx)).toBeLessThan(halfW - 0.45);
+      expect(Math.abs(chairZ - sz)).toBeLessThan(halfD - 0.45);
+      expect(Math.abs(monX - sx)).toBeLessThan(halfW - 0.45);
+      expect(Math.abs(monZ - sz)).toBeLessThan(halfD - 0.45);
     }
 
-    // Within each single-team suite (teams 1..3 with 3, 5, 7 agents), desks keep >= 2.1 spacing
+    // Within each single-team suite (teams 1..3 with 3, 5, 7 agents), seats keep >= 1.45 spacing
     for (let idx = 1; idx <= 3; idx++) {
       const ids = clusters[idx].agentIds;
       for (let i = 0; i < ids.length; i++) {
@@ -278,10 +332,52 @@ describe('computeOfficeLayout', () => {
           const a = layout.desks[ids[i]];
           const b = layout.desks[ids[j]];
           expect(Math.hypot(a.position[0] - b.position[0], a.position[2] - b.position[2])).toBeGreaterThanOrEqual(
-            2.1,
+            1.45,
           );
         }
       }
+    }
+  });
+
+  it('places 8th and 9th team members at the opposite foot end strictly inside suite walls and on the tabletop', () => {
+    const agents: Record<string, AgentNode> = {
+      'lead-big': makeAgent('lead-big', null, 'lead-big'),
+    };
+    const memberIds = ['lead-big'];
+    for (let i = 1; i <= 8; i++) {
+      const id = `sub-big-${i}`;
+      agents[id] = makeAgent(id, 'lead-big', 'lead-big');
+      memberIds.push(id);
+    }
+    const clusters: TeamCluster[] = [
+      {
+        rootId: 'lead-big',
+        projectName: 'Big Team',
+        title: 'Large Sprint',
+        leadAgentId: 'lead-big',
+        agentIds: memberIds,
+        floorId: 'floor-1',
+        lastUpdatedAt: Date.now(),
+      },
+    ];
+
+    const layout = computeOfficeLayout(clusters, agents);
+    const suite = layout.floors[0].suites[0];
+    const table = layout.clusters[0].table!;
+    const [sx, , sz] = suite.center;
+
+    // 7th and 8th subagents sit at opposite foot end facing North (rotationY = 0 in North suite)
+    for (const id of ['sub-big-7', 'sub-big-8']) {
+      const desk = layout.desks[id];
+      expect(desk.rotationY).toBeCloseTo(0);
+      const monX = desk.position[0] - 0.34 * Math.sin(desk.rotationY);
+      const monZ = desk.position[2] - 0.34 * Math.cos(desk.rotationY);
+      expect(Math.abs(monX - table.center[0])).toBeLessThanOrEqual(table.width / 2 - 0.15);
+      expect(Math.abs(monZ - table.center[2])).toBeLessThanOrEqual(table.length / 2 - 0.15);
+
+      const chairBackZ = desk.position[2] + 0.9 * Math.cos(desk.rotationY);
+      expect(Math.abs(chairBackZ - sz)).toBeLessThanOrEqual(suite.depth / 2 - 0.5);
+      expect(Math.abs(desk.position[0] - sx)).toBeLessThanOrEqual(suite.width / 2 - 0.5);
     }
   });
 });
