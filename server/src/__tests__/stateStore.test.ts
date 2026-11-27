@@ -939,6 +939,90 @@ describe('StateStore', () => {
       hasCustomRoomName: false,
     });
   });
+
+  it('assigns sticky suiteIds per team that never swap on activity updates, survive hide/unhide, relocate on floor move, and persist via building config', () => {
+    const store = new StateStore();
+    const t0 = 1_700_000_000_000;
+
+    store.applyHookEvent(
+      { hookEventName: 'SessionStart', conversationId: 'team-a', workspacePaths: ['D:\\ProjA'] },
+      t0,
+    );
+    store.applyHookEvent(
+      { hookEventName: 'SessionStart', conversationId: 'team-b', workspacePaths: ['D:\\ProjB'] },
+      t0 + 100,
+    );
+
+    // Deterministic first-time assignment by createdAt: team-a -> suite-1, team-b -> suite-2
+    const snap1 = store.getSnapshot({ now: t0 + 200 });
+    expect(snap1.clusters.find((c) => c.rootId === 'team-a')?.suiteId).toBe('suite-1');
+    expect(snap1.clusters.find((c) => c.rootId === 'team-b')?.suiteId).toBe('suite-2');
+
+    // Alternating PreToolUse updates flip clusters recency order without changing suiteIds
+    store.applyHookEvent(
+      {
+        hookEventName: 'PreToolUse',
+        conversationId: 'team-a',
+        toolCall: { id: 'a1', name: 'read_file', args: { Path: 'D:\\ProjA\\index.ts' } },
+      },
+      t0 + 500,
+    );
+    const snap2 = store.getSnapshot({ now: t0 + 500 });
+    expect(snap2.clusters[0].rootId).toBe('team-a');
+    expect(snap2.clusters.find((c) => c.rootId === 'team-a')?.suiteId).toBe('suite-1');
+    expect(snap2.clusters.find((c) => c.rootId === 'team-b')?.suiteId).toBe('suite-2');
+
+    store.applyHookEvent(
+      {
+        hookEventName: 'PreToolUse',
+        conversationId: 'team-b',
+        toolCall: { id: 'b1', name: 'edit_file', args: { Path: 'D:\\ProjB\\main.ts' } },
+      },
+      t0 + 900,
+    );
+    const snap3 = store.getSnapshot({ now: t0 + 900 });
+    expect(snap3.clusters[0].rootId).toBe('team-b');
+    expect(snap3.clusters.find((c) => c.rootId === 'team-a')?.suiteId).toBe('suite-1');
+    expect(snap3.clusters.find((c) => c.rootId === 'team-b')?.suiteId).toBe('suite-2');
+
+    // Hiding team-a leaves team-b pinned in suite-2; unhiding returns team-a to suite-1
+    expect(store.hideAgent('team-a')).toBe(true);
+    const snapHidden = store.getSnapshot({ now: t0 + 1000 });
+    expect(snapHidden.clusters).toHaveLength(1);
+    expect(snapHidden.clusters[0]).toMatchObject({ rootId: 'team-b', suiteId: 'suite-2' });
+
+    expect(store.unhideAllAgents()).toBe(1);
+    const snapRestored = store.getSnapshot({ now: t0 + 1100 });
+    expect(snapRestored.clusters.find((c) => c.rootId === 'team-a')?.suiteId).toBe('suite-1');
+    expect(snapRestored.clusters.find((c) => c.rootId === 'team-b')?.suiteId).toBe('suite-2');
+
+    // Moving team-b to Floor 2 assigns it suite-1 on Floor 2 without disturbing team-a on Floor 1
+    const floor2 = store.addFloor('Floor 2');
+    expect(floor2).not.toBeNull();
+    expect(store.setTeamFloor('team-b', floor2!.id)).toBe(true);
+    const snapMoved = store.getSnapshot({ now: t0 + 1200 });
+    expect(snapMoved.clusters.find((c) => c.rootId === 'team-a')).toMatchObject({
+      floorId: 'floor-1',
+      suiteId: 'suite-1',
+    });
+    expect(snapMoved.clusters.find((c) => c.rootId === 'team-b')).toMatchObject({
+      floorId: floor2!.id,
+      suiteId: 'suite-1',
+    });
+
+    // teamSuites round-trips cleanly through getBuildingConfig() -> normalizeBuildingConfig()
+    const cfg = store.getBuildingConfig();
+    expect(cfg.teamSuites).toEqual({ 'team-a': 'suite-1', 'team-b': 'suite-1' });
+    const normalized = normalizeBuildingConfig({
+      ...cfg,
+      teamSuites: {
+        ...cfg.teamSuites,
+        '__proto__': 'suite-1',
+        'bad-suite': 'suite-99',
+      },
+    });
+    expect(normalized.teamSuites).toEqual({ 'team-a': 'suite-1', 'team-b': 'suite-1' });
+  });
 });
 
 describe('DemoSimulator', () => {
@@ -1015,6 +1099,12 @@ describe('DemoSimulator', () => {
     expect(sim.getSnapshot().clusters.find((c) => c.rootId === 'demo-lead-1')).toMatchObject({
       roomName: '3D Workspace',
       hasCustomRoomName: false,
+      suiteId: 'suite-1',
     });
+
+    // Moving demo-lead-2 to demo-floor-1 assigns it an open suite (suite-2) alongside demo-lead-1 (suite-1)
+    expect(sim.setTeamFloor('demo-lead-2', 'demo-floor-1')).toBe(true);
+    expect(sim.getSnapshot().clusters.find((c) => c.rootId === 'demo-lead-1')?.suiteId).toBe('suite-1');
+    expect(sim.getSnapshot().clusters.find((c) => c.rootId === 'demo-lead-2')?.suiteId).toBe('suite-2');
   });
 });

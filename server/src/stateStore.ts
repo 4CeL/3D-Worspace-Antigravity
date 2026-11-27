@@ -21,10 +21,12 @@ import {
 import {
   MAX_FLOORS,
   MAX_TEAM_FLOORS,
+  SUITE_IDS,
   createDefaultBuildingConfig,
   defaultThemeForFloorIndex,
   isSafeObjectKey,
   isValidFloorTheme,
+  isValidSuiteId,
   normalizeBuildingConfig,
 } from './buildingStore.js';
 import type { ParsedTranscriptDelta } from './transcriptParser.js';
@@ -137,6 +139,7 @@ export class StateStore {
   private readonly customAliases = new Map<string, string>();
   private readonly floors: FloorConfig[] = [];
   private readonly teamFloors = new Map<string, string>();
+  private readonly teamSuites = new Map<string, string>();
   private readonly roomNames = new Map<string, string>();
   private readonly failedGhostIds = new Set<string>();
   private readonly hiddenAgents = new Set<string>();
@@ -144,6 +147,7 @@ export class StateStore {
   private readonly seenToolCallIds = new Set<string>();
   private readonly pulses: ActivePulse[] = [];
   private readonly listeners = new Set<() => void>();
+  private suiteAssignmentsVersion = 0;
   private hookActive = false;
   private lastHookAt: number | null = null;
 
@@ -164,6 +168,13 @@ export class StateStore {
     for (const [rootId, floorId] of Object.entries(building.teamFloors)) {
       this.teamFloors.set(rootId, floorId);
     }
+    if (building.teamSuites) {
+      for (const [rootId, suiteId] of Object.entries(building.teamSuites)) {
+        if (isSafeObjectKey(rootId) && isValidSuiteId(suiteId)) {
+          this.teamSuites.set(rootId, suiteId);
+        }
+      }
+    }
     if (building.roomNames) {
       for (const [rootId, roomName] of Object.entries(building.roomNames)) {
         const trimmed = typeof roomName === 'string' ? roomName.trim().slice(0, 40) : '';
@@ -179,6 +190,10 @@ export class StateStore {
         }
       }
     }
+  }
+
+  getSuiteAssignmentsVersion(): number {
+    return this.suiteAssignmentsVersion;
   }
 
   addFloor(name?: string, theme?: FloorTheme): FloorConfig | null {
@@ -227,6 +242,9 @@ export class StateStore {
     for (const [rootId, assigned] of this.teamFloors.entries()) {
       if (assigned === floorId) {
         this.teamFloors.set(rootId, fallbackFloorId);
+        if (this.teamSuites.delete(rootId)) {
+          this.suiteAssignmentsVersion += 1;
+        }
       }
     }
     this.emitChange();
@@ -236,11 +254,17 @@ export class StateStore {
   setTeamFloor(rootId: string, floorId: string): boolean {
     const trimmedRoot = typeof rootId === 'string' ? rootId.trim() : '';
     if (!isSafeObjectKey(trimmedRoot) || !this.floors.some((f) => f.id === floorId)) return false;
+    const prevFloorId = this.teamFloors.get(trimmedRoot) ?? this.floors[0].id;
     if (!this.teamFloors.has(trimmedRoot) && this.teamFloors.size >= MAX_TEAM_FLOORS) {
       const oldestKey = this.teamFloors.keys().next().value;
       if (oldestKey) this.teamFloors.delete(oldestKey);
     }
     this.teamFloors.set(trimmedRoot, floorId);
+    if (prevFloorId !== floorId) {
+      if (this.teamSuites.delete(trimmedRoot)) {
+        this.suiteAssignmentsVersion += 1;
+      }
+    }
     this.emitChange();
     return true;
   }
@@ -301,11 +325,18 @@ export class StateStore {
         roomNames[k] = v;
       }
     }
+    const teamSuites: Record<string, string> = {};
+    for (const [k, v] of this.teamSuites.entries()) {
+      if (isSafeObjectKey(k) && isValidSuiteId(v)) {
+        teamSuites[k] = v;
+      }
+    }
     return {
       floors: this.floors.map((f) => ({ ...f })),
       teamFloors,
       hiddenAgents: Array.from(this.hiddenAgents),
       roomNames,
+      teamSuites,
     };
   }
 
@@ -903,7 +934,7 @@ export class StateStore {
       clusterMembers.set(rootId, list);
     }
 
-    const clusters: TeamCluster[] = [];
+    const pendingClusters: Array<{ cluster: TeamCluster; earliestCreatedAt: number }> = [];
     const agentsOut: Record<string, AgentNode> = {};
 
     for (const [rootId, members] of clusterMembers.entries()) {
@@ -963,17 +994,21 @@ export class StateStore {
           : this.floors[0].id;
 
       const customRoomName = this.roomNames.get(rootId);
-      clusters.push({
-        rootId,
-        projectName,
-        roomName: customRoomName || projectName,
-        hasCustomRoomName: Boolean(customRoomName),
-        workspacePath,
-        title: leadAlias || lead.displayName,
-        leadAgentId: lead.id,
-        agentIds: visibleMembers.map((m) => m.id),
-        floorId: validFloorId,
-        lastUpdatedAt: clusterUpdatedAt,
+      const earliestCreatedAt = Math.min(...visibleMembers.map((m) => m.createdAt));
+      pendingClusters.push({
+        earliestCreatedAt,
+        cluster: {
+          rootId,
+          projectName,
+          roomName: customRoomName || projectName,
+          hasCustomRoomName: Boolean(customRoomName),
+          workspacePath,
+          title: leadAlias || lead.displayName,
+          leadAgentId: lead.id,
+          agentIds: visibleMembers.map((m) => m.id),
+          floorId: validFloorId,
+          lastUpdatedAt: clusterUpdatedAt,
+        },
       });
 
       for (const m of visibleMembers) {
@@ -1008,6 +1043,71 @@ export class StateStore {
         };
       }
     }
+
+    // Pass 1: count suites already pinned on each floor for visible clusters
+    const usedSuitesByFloor = new Map<string, Map<string, number>>();
+    const getFloorSuiteCounts = (floorId: string): Map<string, number> => {
+      let counts = usedSuitesByFloor.get(floorId);
+      if (!counts) {
+        counts = new Map<string, number>();
+        usedSuitesByFloor.set(floorId, counts);
+      }
+      return counts;
+    };
+
+    const unassigned: Array<{ cluster: TeamCluster; earliestCreatedAt: number }> = [];
+    // Sort pinned candidates deterministically so if two teams ever share a stale suiteId, the older one keeps it
+    const orderedForPinning = [...pendingClusters].sort(
+      (a, b) =>
+        a.earliestCreatedAt - b.earliestCreatedAt ||
+        a.cluster.rootId.localeCompare(b.cluster.rootId),
+    );
+    for (const entry of orderedForPinning) {
+      const existingSuite = this.teamSuites.get(entry.cluster.rootId);
+      const counts = getFloorSuiteCounts(entry.cluster.floorId);
+      if (existingSuite && isValidSuiteId(existingSuite) && (counts.get(existingSuite) ?? 0) === 0) {
+        counts.set(existingSuite, 1);
+      } else {
+        unassigned.push(entry);
+      }
+    }
+
+    // Pass 2: deterministically assign open suites to newly seen clusters by (earliestCreatedAt, rootId)
+    unassigned.sort(
+      (a, b) =>
+        a.earliestCreatedAt - b.earliestCreatedAt ||
+        a.cluster.rootId.localeCompare(b.cluster.rootId),
+    );
+    for (const entry of unassigned) {
+      const counts = getFloorSuiteCounts(entry.cluster.floorId);
+      let chosenSuite: string = SUITE_IDS[0];
+      let minCount = Number.POSITIVE_INFINITY;
+      for (const candidate of SUITE_IDS) {
+        const c = counts.get(candidate) ?? 0;
+        if (c < minCount) {
+          minCount = c;
+          chosenSuite = candidate;
+        }
+      }
+      const rootId = entry.cluster.rootId;
+      if (isSafeObjectKey(rootId)) {
+        if (!this.teamSuites.has(rootId) && this.teamSuites.size >= MAX_TEAM_FLOORS) {
+          const oldestKey = this.teamSuites.keys().next().value;
+          if (oldestKey) this.teamSuites.delete(oldestKey);
+        }
+        this.teamSuites.set(rootId, chosenSuite);
+        this.suiteAssignmentsVersion += 1;
+      }
+      counts.set(chosenSuite, (counts.get(chosenSuite) ?? 0) + 1);
+      entry.cluster.suiteId = chosenSuite;
+    }
+
+    const clusters: TeamCluster[] = pendingClusters.map((entry) => {
+      if (!entry.cluster.suiteId) {
+        entry.cluster.suiteId = this.teamSuites.get(entry.cluster.rootId) ?? SUITE_IDS[0];
+      }
+      return entry.cluster;
+    });
 
     clusters.sort((a, b) => b.lastUpdatedAt - a.lastUpdatedAt);
 

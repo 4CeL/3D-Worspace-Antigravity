@@ -141,10 +141,27 @@ export async function createOfficeServer(
   const watcher = options.brainDir ? new TranscriptWatcher({ brainDir: options.brainDir }) : null;
 
   let demoMode = false;
+  let lastPersistedSuiteVersion = stateStore.getSuiteAssignmentsVersion();
   const clientRecency = new Map<WebSocket, RecencyWindow>();
 
-  const getCurrentSnapshot = (recency: RecencyWindow): OfficeSnapshot =>
-    demoMode ? demoSimulator.getSnapshot() : stateStore.getSnapshot({ recency });
+  const persistSuiteAssignmentsIfNeeded = (): void => {
+    if (demoMode || !options.buildingFilePath) return;
+    const currentVersion = stateStore.getSuiteAssignmentsVersion();
+    if (currentVersion === lastPersistedSuiteVersion) return;
+    lastPersistedSuiteVersion = currentVersion;
+    try {
+      saveBuildingConfig(options.buildingFilePath, stateStore.getBuildingConfig());
+    } catch {
+      // Fail-open so snapshots never break on transient disk errors
+    }
+  };
+
+  const getCurrentSnapshot = (recency: RecencyWindow): OfficeSnapshot => {
+    if (demoMode) return demoSimulator.getSnapshot();
+    const snapshot = stateStore.getSnapshot({ recency });
+    persistSuiteAssignmentsIfNeeded();
+    return snapshot;
+  };
 
   const sendSnapshotToClient = (ws: WebSocket): void => {
     if (ws.readyState !== WebSocket.OPEN) return;
@@ -157,6 +174,7 @@ export async function createOfficeServer(
     for (const ws of clientRecency.keys()) {
       sendSnapshotToClient(ws);
     }
+    persistSuiteAssignmentsIfNeeded();
   };
 
   const setDemoMode = (enabled: boolean): void => {
@@ -212,6 +230,7 @@ export async function createOfficeServer(
       if (!options.buildingFilePath) return true;
       try {
         saveBuildingConfig(options.buildingFilePath, stateStore.getBuildingConfig());
+        lastPersistedSuiteVersion = stateStore.getSuiteAssignmentsVersion();
         return true;
       } catch {
         sendJson(res, 500, { ok: false, error: 'Failed to save building configuration' });

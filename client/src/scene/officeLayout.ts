@@ -109,6 +109,15 @@ export interface OfficeLayout {
 const RUG_PALETTE = ['#dce8df', '#e4e1f2', '#f3e5d2', '#dae9f5', '#f2e0e4'];
 const SHARED_TABLE_WIDTH = 2.2;
 
+function hashString(str: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h >>> 0;
+}
+
 interface SuiteTemplate {
   id: string;
   label: string;
@@ -317,22 +326,55 @@ export function computeOfficeLayout(
   const allClusterPlacements: ClusterPlacement[] = [];
   const floorLayouts: FloorLayout[] = [];
   const desks: Record<string, DeskPlacement> = {};
-  let globalPaletteIdx = 0;
 
   for (const floor of floors) {
     const y = (floor.index - 1) * FLOOR_HEIGHT;
     const suites = createFloorSuites(y);
+    const suitesById = new Map(suites.map((s) => [s.id, s]));
+    const suiteUsageCount = new Map<string, number>(suites.map((s) => [s.id, 0]));
     const floorClusters = clustersByFloor.get(floor.id) ?? [];
     const floorClusterPlacements: ClusterPlacement[] = [];
 
-    floorClusters.forEach((cluster, idx) => {
-      const effectiveLeadId = cluster.agentIds.includes(cluster.leadAgentId)
-        ? cluster.leadAgentId
-        : cluster.agentIds[0];
-      if (!effectiveLeadId) return;
+    const validEntries = floorClusters
+      .map((cluster) => {
+        const effectiveLeadId = cluster.agentIds.includes(cluster.leadAgentId)
+          ? cluster.leadAgentId
+          : cluster.agentIds[0];
+        return effectiveLeadId ? { cluster, effectiveLeadId } : null;
+      })
+      .filter((e): e is { cluster: TeamCluster; effectiveLeadId: string } => e !== null);
 
-      const suite = suites[idx % suites.length];
-      const overflowPass = Math.floor(idx / suites.length);
+    const assignedSuites = new Map<string, { suite: GlassSuiteSlot; overflowPass: number }>();
+
+    // First pass: honor pinned suiteId assignments so teams never swap rooms on reorder
+    for (const { cluster } of validEntries) {
+      if (cluster.suiteId && suitesById.has(cluster.suiteId)) {
+        const suite = suitesById.get(cluster.suiteId)!;
+        const count = suiteUsageCount.get(suite.id) ?? 0;
+        assignedSuites.set(cluster.rootId, { suite, overflowPass: count });
+        suiteUsageCount.set(suite.id, count + 1);
+      }
+    }
+
+    // Second pass: assign unpinned clusters to the least-occupied suite (suite-1..suite-4)
+    for (const { cluster } of validEntries) {
+      if (assignedSuites.has(cluster.rootId)) continue;
+      let bestSuite = suites[0];
+      let bestCount = suiteUsageCount.get(bestSuite.id) ?? 0;
+      for (let i = 1; i < suites.length; i++) {
+        const candidate = suites[i];
+        const count = suiteUsageCount.get(candidate.id) ?? 0;
+        if (count < bestCount) {
+          bestSuite = candidate;
+          bestCount = count;
+        }
+      }
+      assignedSuites.set(cluster.rootId, { suite: bestSuite, overflowPass: bestCount });
+      suiteUsageCount.set(bestSuite.id, bestCount + 1);
+    }
+
+    for (const { cluster, effectiveLeadId } of validEntries) {
+      const { suite, overflowPass } = assignedSuites.get(cluster.rootId)!;
 
       const { table, desks: suiteDesks } = placeSharedTableInSuite(
         suite,
@@ -356,18 +398,17 @@ export function computeOfficeLayout(
         center: [suite.center[0], y, suite.center[2]],
         rugWidth: suite.width - 0.85,
         rugDepth: suite.depth - 0.85,
-        rugColor: RUG_PALETTE[globalPaletteIdx % RUG_PALETTE.length],
+        rugColor: RUG_PALETTE[hashString(cluster.rootId) % RUG_PALETTE.length],
         leadAgentId: effectiveLeadId,
         agentIds: cluster.agentIds,
       };
-      globalPaletteIdx += 1;
       floorClusterPlacements.push(placement);
       allClusterPlacements.push(placement);
 
       for (const d of suiteDesks) {
         desks[d.agentId] = d;
       }
-    });
+    }
 
     // Back-Right Glass Pantry/Coffee room focal point
     const coffeeCorner: [number, number, number] = [11.2, y, -9.8];

@@ -83,6 +83,7 @@ export interface FloorConfig {
 export interface BuildingConfig {
   floors: FloorConfig[];
   teamFloors: Record<string, string>;
+  teamSuites?: Record<string, string>;
   hiddenAgents?: string[];
   roomNames?: Record<string, string>;
 }
@@ -97,6 +98,7 @@ export interface TeamCluster {
   leadAgentId: string;
   agentIds: string[];
   floorId: string;
+  suiteId?: string;
   lastUpdatedAt: number;
 }
 

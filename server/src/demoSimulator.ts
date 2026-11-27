@@ -11,6 +11,7 @@ import type {
 import {
   MAX_FLOORS,
   MAX_TEAM_FLOORS,
+  SUITE_IDS,
   defaultThemeForFloorIndex,
   isSafeObjectKey,
   isValidFloorTheme,
@@ -89,12 +90,39 @@ export class DemoSimulator {
     ['demo-lead-1', 'demo-floor-1'],
     ['demo-lead-2', 'demo-floor-2'],
   ]);
+  private readonly teamSuites = new Map<string, string>([
+    ['demo-lead-1', 'suite-1'],
+    ['demo-lead-2', 'suite-1'],
+  ]);
   private readonly roomNames = new Map<string, string>();
   private readonly hiddenAgents = new Set<string>();
   private snapshot: OfficeSnapshot;
 
   constructor() {
     this.snapshot = this.buildSnapshot(Date.now());
+  }
+
+  private pickFreeSuiteForFloor(floorId: string, excludeRootId?: string): string {
+    const counts = new Map<string, number>();
+    for (const [rootId, assignedFloor] of this.teamFloors.entries()) {
+      if (rootId === excludeRootId) continue;
+      const resolvedFloor = this.floors.some((f) => f.id === assignedFloor)
+        ? assignedFloor
+        : this.floors[0].id;
+      if (resolvedFloor !== floorId) continue;
+      const suite = this.teamSuites.get(rootId) ?? SUITE_IDS[0];
+      counts.set(suite, (counts.get(suite) ?? 0) + 1);
+    }
+    let chosen: string = SUITE_IDS[0];
+    let minCount = Number.POSITIVE_INFINITY;
+    for (const candidate of SUITE_IDS) {
+      const c = counts.get(candidate) ?? 0;
+      if (c < minCount) {
+        minCount = c;
+        chosen = candidate;
+      }
+    }
+    return chosen;
   }
 
   addFloor(name?: string, theme?: FloorTheme): FloorConfig | null {
@@ -141,7 +169,10 @@ export class DemoSimulator {
       f.index = i + 1;
     });
     for (const [rootId, fid] of this.teamFloors.entries()) {
-      if (fid === floorId) this.teamFloors.set(rootId, fallback);
+      if (fid === floorId) {
+        this.teamFloors.set(rootId, fallback);
+        this.teamSuites.set(rootId, this.pickFreeSuiteForFloor(fallback, rootId));
+      }
     }
     this.snapshot = this.buildSnapshot(Date.now());
     return true;
@@ -150,11 +181,15 @@ export class DemoSimulator {
   setTeamFloor(rootId: string, floorId: string): boolean {
     const trimmedRoot = typeof rootId === 'string' ? rootId.trim() : '';
     if (!isSafeObjectKey(trimmedRoot) || !this.floors.some((f) => f.id === floorId)) return false;
+    const prevFloorId = this.teamFloors.get(trimmedRoot) ?? this.floors[0].id;
     if (!this.teamFloors.has(trimmedRoot) && this.teamFloors.size >= MAX_TEAM_FLOORS) {
       const oldestKey = this.teamFloors.keys().next().value;
       if (oldestKey) this.teamFloors.delete(oldestKey);
     }
     this.teamFloors.set(trimmedRoot, floorId);
+    if (prevFloorId !== floorId) {
+      this.teamSuites.set(trimmedRoot, this.pickFreeSuiteForFloor(floorId, trimmedRoot));
+    }
     this.snapshot = this.buildSnapshot(Date.now());
     return true;
   }
@@ -528,6 +563,7 @@ export class DemoSimulator {
         leadAgentId: leadId,
         agentIds: visibleIds,
         floorId: resolveFloor(rc.rootId),
+        suiteId: this.teamSuites.get(rc.rootId) ?? SUITE_IDS[0],
         lastUpdatedAt: rc.lastUpdatedAt,
       });
       for (const id of visibleIds) {

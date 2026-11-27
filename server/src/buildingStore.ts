@@ -7,6 +7,7 @@ export const MAX_FLOORS = 8;
 export const MAX_ROOT_ID_LEN = 128;
 export const MAX_TEAM_FLOORS = 500;
 export const FLOOR_THEMES: readonly FloorTheme[] = ['engineering', 'lobby', 'creative', 'pantry'];
+export const SUITE_IDS = ['suite-1', 'suite-2', 'suite-3', 'suite-4'] as const;
 
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const SAFE_FLOOR_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
@@ -23,6 +24,10 @@ export function isValidFloorTheme(val: unknown): val is FloorTheme {
   return typeof val === 'string' && (FLOOR_THEMES as readonly string[]).includes(val);
 }
 
+export function isValidSuiteId(val: unknown): val is string {
+  return typeof val === 'string' && (SUITE_IDS as readonly string[]).includes(val);
+}
+
 export function defaultThemeForFloorIndex(index: number): FloorTheme {
   const safeIndex = Number.isFinite(index) ? Math.floor(index) : 1;
   return FLOOR_THEMES[(Math.max(1, safeIndex) - 1) % FLOOR_THEMES.length];
@@ -34,6 +39,7 @@ export function createDefaultBuildingConfig(): BuildingConfig {
     teamFloors: {},
     hiddenAgents: [],
     roomNames: {},
+    teamSuites: {},
   };
 }
 
@@ -46,6 +52,7 @@ export function normalizeBuildingConfig(raw: unknown): BuildingConfig {
     teamFloors?: unknown;
     hiddenAgents?: unknown;
     roomNames?: unknown;
+    teamSuites?: unknown;
   };
   const rawFloors = Array.isArray(obj.floors) ? obj.floors : [];
 
@@ -112,7 +119,26 @@ export function normalizeBuildingConfig(raw: unknown): BuildingConfig {
     }
   }
 
-  return { floors, teamFloors: { ...teamFloors }, hiddenAgents, roomNames: { ...roomNames } };
+  const teamSuites: Record<string, string> = Object.create(null);
+  if (obj.teamSuites && typeof obj.teamSuites === 'object' && !Array.isArray(obj.teamSuites)) {
+    let count = 0;
+    for (const [rootId, suiteId] of Object.entries(obj.teamSuites as Record<string, unknown>)) {
+      if (count >= MAX_TEAM_FLOORS) break;
+      const cleanRoot = typeof rootId === 'string' ? rootId.trim() : '';
+      if (isSafeObjectKey(cleanRoot) && isValidSuiteId(suiteId)) {
+        teamSuites[cleanRoot] = suiteId;
+        count += 1;
+      }
+    }
+  }
+
+  return {
+    floors,
+    teamFloors: { ...teamFloors },
+    hiddenAgents,
+    roomNames: { ...roomNames },
+    teamSuites: { ...teamSuites },
+  };
 }
 
 export function loadBuildingConfig(filePath: string): BuildingConfig {

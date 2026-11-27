@@ -442,4 +442,68 @@ describe('computeOfficeLayout', () => {
     expect(polarAngle).toBeGreaterThan(0.32);
     expect(polarAngle).toBeLessThan(Math.PI / 2.22);
   });
+
+  it('keeps teams permanently in their sticky suiteId with identical coordinates and rugColor across cluster reordering and hiding', () => {
+    const agents: Record<string, AgentNode> = {
+      'team-a': makeAgent('team-a', null, 'team-a'),
+      'team-a-sub': makeAgent('team-a-sub', 'team-a', 'team-a'),
+      'team-b': makeAgent('team-b', null, 'team-b'),
+      'team-b-sub': makeAgent('team-b-sub', 'team-b', 'team-b'),
+    };
+    const clusterA: TeamCluster = {
+      rootId: 'team-a',
+      projectName: 'Alpha',
+      title: 'Alpha Sprint',
+      leadAgentId: 'team-a',
+      agentIds: ['team-a', 'team-a-sub'],
+      floorId: 'floor-1',
+      suiteId: 'suite-1',
+      lastUpdatedAt: Date.now() - 1000,
+    };
+    const clusterB: TeamCluster = {
+      rootId: 'team-b',
+      projectName: 'Beta',
+      title: 'Beta Sprint',
+      leadAgentId: 'team-b',
+      agentIds: ['team-b', 'team-b-sub'],
+      floorId: 'floor-1',
+      suiteId: 'suite-2',
+      lastUpdatedAt: Date.now(),
+    };
+
+    const layoutAB = computeOfficeLayout([clusterA, clusterB], agents);
+    const layoutBA = computeOfficeLayout([clusterB, clusterA], agents);
+    const layoutOnlyB = computeOfficeLayout([clusterB], agents);
+
+    const a1 = layoutAB.clusters.find((c) => c.rootId === 'team-a')!;
+    const a2 = layoutBA.clusters.find((c) => c.rootId === 'team-a')!;
+    const b1 = layoutAB.clusters.find((c) => c.rootId === 'team-b')!;
+    const b2 = layoutBA.clusters.find((c) => c.rootId === 'team-b')!;
+    const bSolo = layoutOnlyB.clusters.find((c) => c.rootId === 'team-b')!;
+
+    // Reordering [team-a, team-b] -> [team-b, team-a] produces exact same suite, table, desks, and rugColor
+    expect(a1.suiteId).toBe('suite-1');
+    expect(a2.suiteId).toBe('suite-1');
+    expect(a2.center).toEqual(a1.center);
+    expect(a2.table?.center).toEqual(a1.table?.center);
+    expect(a2.rugColor).toBe(a1.rugColor);
+    expect(layoutBA.desks['team-a'].position).toEqual(layoutAB.desks['team-a'].position);
+    expect(layoutBA.desks['team-a-sub'].position).toEqual(layoutAB.desks['team-a-sub'].position);
+
+    expect(b1.suiteId).toBe('suite-2');
+    expect(b2.suiteId).toBe('suite-2');
+    expect(b2.center).toEqual(b1.center);
+    expect(b2.table?.center).toEqual(b1.table?.center);
+    expect(b2.rugColor).toBe(b1.rugColor);
+    expect(layoutBA.desks['team-b'].position).toEqual(layoutAB.desks['team-b'].position);
+    expect(layoutBA.desks['team-b-sub'].position).toEqual(layoutAB.desks['team-b-sub'].position);
+
+    // When team-a is hidden/absent, team-b stays permanently pinned in suite-2 with identical coords & rugColor
+    expect(bSolo.suiteId).toBe('suite-2');
+    expect(bSolo.center).toEqual(b1.center);
+    expect(bSolo.table?.center).toEqual(b1.table?.center);
+    expect(bSolo.rugColor).toBe(b1.rugColor);
+    expect(layoutOnlyB.desks['team-b'].position).toEqual(layoutAB.desks['team-b'].position);
+    expect(layoutOnlyB.desks['team-b-sub'].position).toEqual(layoutAB.desks['team-b-sub'].position);
+  });
 });
