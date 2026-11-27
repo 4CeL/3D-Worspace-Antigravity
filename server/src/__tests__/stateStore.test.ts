@@ -177,6 +177,14 @@ describe('StateStore', () => {
       },
       t0,
     );
+    store.applyHookEvent(
+      {
+        hookEventName: 'PostToolUse',
+        conversationId: 'c1',
+        toolCall: { id: 't1', name: 'read_file' },
+      },
+      t0 + 50,
+    );
 
     expect(store.tickIdleCheck(t0 + 10_000)).toBe(false);
     expect(store.getSnapshot({ now: t0 + 10_000 }).agents['c1'].status).toBe('reading');
@@ -613,6 +621,240 @@ describe('StateStore', () => {
     expect(snapRestored.agents['sub-1']).toBeDefined();
     expect(snapRestored.activePulses).toHaveLength(2);
   });
+
+  it('sets pendingApproval immediately on ask_question and clears it on PostToolUse or Stop', () => {
+    const store = new StateStore();
+    const t0 = 1_700_000_000_000;
+
+    store.applyHookEvent(
+      {
+        hookEventName: 'PreToolUse',
+        conversationId: 'c-ask',
+        workspacePaths: ['D:\\Proj'],
+        toolCall: {
+          id: 'q1',
+          name: 'ask_question',
+          args: { questions: [{ question: 'Deploy ke staging sekarang?' }] },
+        },
+      },
+      t0,
+    );
+
+    const immediate = store.getSnapshot({ now: t0 });
+    expect(immediate.agents['c-ask'].pendingApproval).toEqual({
+      id: 'q1',
+      kind: 'question',
+      toolName: 'ask_question',
+      title: 'Menunggu Jawaban Kamu',
+      detail: 'Deploy ke staging sekarang?',
+      startedAt: t0,
+    });
+
+    // Clears on PostToolUse
+    store.applyHookEvent(
+      {
+        hookEventName: 'PostToolUse',
+        conversationId: 'c-ask',
+        toolCall: { id: 'q1', name: 'ask_question' },
+      },
+      t0 + 500,
+    );
+    expect(store.getSnapshot({ now: t0 + 500 }).agents['c-ask'].pendingApproval).toBeUndefined();
+
+    // Also clears on Stop
+    store.applyHookEvent(
+      {
+        hookEventName: 'PreToolUse',
+        conversationId: 'c-ask',
+        toolCall: { id: 'q2', name: 'ask_question', args: { questions: [{ question: 'Lanjut?' }] } },
+      },
+      t0 + 1000,
+    );
+    expect(store.getSnapshot({ now: t0 + 1000 }).agents['c-ask'].pendingApproval?.id).toBe('q2');
+
+    store.applyHookEvent({ hookEventName: 'Stop', conversationId: 'c-ask', fullyIdle: true }, t0 + 1500);
+    expect(store.getSnapshot({ now: t0 + 1500 }).agents['c-ask'].pendingApproval).toBeUndefined();
+  });
+
+  it('delays BypassSandbox run_command pendingApproval until 1500ms, prevents idle flip past 20s, clears on PostToolUse, and expires after 10m', () => {
+    const store = new StateStore();
+    const onChange = vi.fn();
+    store.onChange(onChange);
+    const t0 = 1_700_000_000_000;
+
+    store.applyHookEvent(
+      {
+        hookEventName: 'PreToolUse',
+        conversationId: 'c-cmd',
+        workspacePaths: ['D:\\Proj'],
+        toolCall: {
+          id: 'cmd-1',
+          name: 'run_command',
+          args: { CommandLine: 'git push origin main', BypassSandbox: true },
+        },
+      },
+      t0,
+    );
+
+    // Not exposed before 1500ms
+    expect(store.getSnapshot({ now: t0 + 1000 }).agents['c-cmd'].pendingApproval).toBeUndefined();
+    expect(store.tickIdleCheck(t0 + 1000)).toBe(false);
+
+    // Crosses 1500ms threshold -> tickIdleCheck returns true & emits change
+    onChange.mockClear();
+    expect(store.tickIdleCheck(t0 + 1600)).toBe(true);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(store.getSnapshot({ now: t0 + 1600 }).agents['c-cmd'].pendingApproval).toEqual({
+      id: 'cmd-1',
+      kind: 'permission',
+      toolName: 'run_command',
+      title: 'Butuh Izin di Luar Sandbox',
+      detail: 'git push origin main',
+      startedAt: t0,
+    });
+
+    // Does NOT flip to idle past IDLE_TIMEOUT_MS (20s) while approval is pending
+    expect(store.tickIdleCheck(t0 + 25_000)).toBe(false);
+    const snap25s = store.getSnapshot({ now: t0 + 25_000 });
+    expect(snap25s.agents['c-cmd'].status).toBe('running');
+    expect(snap25s.agents['c-cmd'].pendingApproval?.id).toBe('cmd-1');
+
+    // PostToolUse clears pendingApproval
+    store.applyHookEvent(
+      {
+        hookEventName: 'PostToolUse',
+        conversationId: 'c-cmd',
+        toolCall: { id: 'cmd-1', name: 'run_command' },
+      },
+      t0 + 26_000,
+    );
+    expect(store.getSnapshot({ now: t0 + 26_000 }).agents['c-cmd'].pendingApproval).toBeUndefined();
+
+    // Another pending request expires cleanly after APPROVAL_STALE_MS (10 minutes)
+    const t2 = t0 + 30_000;
+    store.applyHookEvent(
+      {
+        hookEventName: 'PreToolUse',
+        conversationId: 'c-cmd',
+        toolCall: {
+          id: 'cmd-2',
+          name: 'run_command',
+          args: { CommandLine: 'npm publish', BypassSandbox: true },
+        },
+      },
+      t2,
+    );
+    expect(store.tickIdleCheck(t2 + 2_000)).toBe(true);
+    expect(store.getSnapshot({ now: t2 + 2_000 }).agents['c-cmd'].pendingApproval?.id).toBe('cmd-2');
+
+    // Past 10 minutes -> expires and clears activeTool + transitions to idle
+    expect(store.tickIdleCheck(t2 + 10 * 60 * 1000 + 1000)).toBe(true);
+    const snapExpired = store.getSnapshot({ now: t2 + 10 * 60 * 1000 + 1000 });
+    expect(snapExpired.agents['c-cmd'].pendingApproval).toBeUndefined();
+    expect(snapExpired.agents['c-cmd'].status).toBe('idle');
+  });
+
+  it('does not spam emitChange on repeated 1s ticks, clears activeTool on toolCall-less PostToolUse, missed-hook transcript progression, and hides from snapshot when agent is hidden', () => {
+    const store = new StateStore();
+    const onChange = vi.fn();
+    store.onChange(onChange);
+    const t0 = 1_700_000_000_000;
+
+    // 1) delayMs = 0 (ask_question) is pre-announced -> repeated 1s ticks must NOT emitChange
+    store.applyHookEvent(
+      {
+        hookEventName: 'PreToolUse',
+        conversationId: 'c-edge',
+        workspacePaths: ['D:\\Proj'],
+        toolCall: {
+          id: 'q-zero',
+          name: 'ask_question',
+          args: { questions: [{ question: 'Lanjut deploy?' }] },
+        },
+      },
+      t0,
+    );
+    onChange.mockClear();
+    expect(store.tickIdleCheck(t0 + 1_000)).toBe(false);
+    expect(store.tickIdleCheck(t0 + 2_000)).toBe(false);
+    expect(store.tickIdleCheck(t0 + 3_000)).toBe(false);
+    expect(onChange).not.toHaveBeenCalled();
+
+    // 2) PostToolUse arriving WITHOUT toolCall still clears activeTool cleanly
+    store.applyHookEvent(
+      {
+        hookEventName: 'PostToolUse',
+        conversationId: 'c-edge',
+      },
+      t0 + 4_000,
+    );
+    expect(store.getSnapshot({ now: t0 + 4_000 }).agents['c-edge'].pendingApproval).toBeUndefined();
+
+    // 3) Delayed approval announces ONCE, then stays silent on subsequent 1s ticks
+    const t1 = t0 + 10_000;
+    store.applyHookEvent(
+      {
+        hookEventName: 'PreToolUse',
+        conversationId: 'c-edge',
+        toolCall: {
+          id: 'cmd-delayed',
+          name: 'run_command',
+          args: { CommandLine: 'git push', BypassSandbox: true },
+        },
+      },
+      t1,
+    );
+    onChange.mockClear();
+    expect(store.tickIdleCheck(t1 + 1_600)).toBe(true);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(store.tickIdleCheck(t1 + 2_600)).toBe(false);
+    expect(store.tickIdleCheck(t1 + 3_600)).toBe(false);
+    expect(store.tickIdleCheck(t1 + 4_600)).toBe(false);
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    // 4) Same-tool transcript echo must NOT prematurely clear pendingApproval
+    store.applyTranscriptDelta(
+      'c-edge',
+      emptyDelta({
+        lastStatus: 'running',
+        lastToolName: 'run_command',
+        lastTimestamp: t1 + 5_000,
+      }),
+      t1 + 5_000,
+    );
+    expect(store.getSnapshot({ now: t1 + 5_000 }).agents['c-edge'].pendingApproval?.id).toBe(
+      'cmd-delayed',
+    );
+
+    // 5) Newer transcript delta with lastStatus: 'idle' clears stale activeTool when PostToolUse was missed
+    store.applyTranscriptDelta(
+      'c-edge',
+      emptyDelta({
+        lastStatus: 'idle',
+        lastTimestamp: t1 + 6_000,
+      }),
+      t1 + 6_000,
+    );
+    expect(store.getSnapshot({ now: t1 + 6_000 }).agents['c-edge'].pendingApproval).toBeUndefined();
+
+    // 6) Hiding an agent with active pendingApproval excludes it from snapshot cleanly
+    const t2 = t1 + 10_000;
+    store.applyHookEvent(
+      {
+        hookEventName: 'PreToolUse',
+        conversationId: 'c-edge',
+        toolCall: {
+          id: 'q-hidden',
+          name: 'ask_question',
+          args: { questions: [{ question: 'Konfirmasi?' }] },
+        },
+      },
+      t2,
+    );
+    expect(store.getSnapshot({ now: t2 }).agents['c-edge'].pendingApproval?.id).toBe('q-hidden');
+    expect(store.hideAgent('c-edge')).toBe(true);
+    expect(store.getSnapshot({ now: t2 }).agents['c-edge']).toBeUndefined();
+  });
 });
 
 describe('DemoSimulator', () => {
@@ -663,5 +905,15 @@ describe('DemoSimulator', () => {
 
     const snap2 = sim.step();
     expect(snap2.generatedAt).toBeGreaterThanOrEqual(snap1.generatedAt);
+
+    // Phase index 2 gives demo-sub-1 a realistic pendingApproval preview
+    const snapPhase2 = sim.step();
+    expect(snapPhase2.agents['demo-sub-1'].pendingApproval).toMatchObject({
+      id: 'demo-req-push',
+      kind: 'permission',
+      toolName: 'run_command',
+      title: 'Butuh Izin di Luar Sandbox',
+      detail: 'git push origin main',
+    });
   });
 });

@@ -1,5 +1,6 @@
 import {
   classifyToolCall,
+  detectPendingApprovalCandidate,
   normalizeFilePath,
   type ActivePulse,
   type ActivityEvent,
@@ -12,6 +13,8 @@ import {
   type FloorTheme,
   type HookEventPayload,
   type OfficeSnapshot,
+  type PendingApprovalRequest,
+  type PendingRequestKind,
   type RecencyWindow,
   type TeamCluster,
 } from '@office/shared';
@@ -32,6 +35,17 @@ interface ParentLink {
   typeName?: string;
 }
 
+interface ActiveToolTracker {
+  id: string;
+  kind: PendingRequestKind;
+  toolName: string;
+  title: string;
+  detail: string;
+  startedAt: number;
+  delayMs: number;
+  announced: boolean;
+}
+
 interface InternalAgent {
   id: string;
   parentId: string | null;
@@ -46,6 +60,7 @@ interface InternalAgent {
   focusText?: string;
   currentTool?: string;
   currentFile?: { fileName: string; path: string; action: FileAction };
+  activeTool?: ActiveToolTracker;
   files: Map<string, FileTouch>;
   recentActivity: ActivityEvent[];
   lastUpdatedAt: number;
@@ -55,6 +70,7 @@ interface InternalAgent {
 }
 
 const IDLE_TIMEOUT_MS = 20_000;
+const APPROVAL_STALE_MS = 10 * 60 * 1000;
 const DEDUP_WINDOW_MS = 2_000;
 const PULSE_TTL_MS = 5_000;
 const MAX_ACTIVITY_ITEMS = 25;
@@ -531,11 +547,47 @@ export class StateStore {
     if (eventName === 'SessionStart' || eventName === 'PreInvocation') {
       agent.status = 'thinking';
       agent.errorMessage = undefined;
-    } else if (eventName === 'PreToolUse' && payload.toolCall) {
-      const classified = classifyToolCall(payload.toolCall.name, payload.toolCall.args);
+      agent.activeTool = undefined;
+    } else if (eventName === 'PostInvocation') {
+      agent.activeTool = undefined;
+    } else if (
+      eventName === 'PreToolUse' &&
+      payload.toolCall &&
+      typeof payload.toolCall === 'object' &&
+      !Array.isArray(payload.toolCall)
+    ) {
+      const toolName =
+        typeof payload.toolCall.name === 'string' ? payload.toolCall.name.trim().slice(0, 128) : '';
+      const toolArgs =
+        payload.toolCall.args &&
+        typeof payload.toolCall.args === 'object' &&
+        !Array.isArray(payload.toolCall.args)
+          ? payload.toolCall.args
+          : undefined;
+      const toolCallId =
+        typeof payload.toolCall.id === 'string' && payload.toolCall.id.trim()
+          ? payload.toolCall.id.trim().slice(0, 128)
+          : undefined;
+
+      const classified = classifyToolCall(toolName, toolArgs);
       agent.status = classified.status;
-      agent.currentTool = payload.toolCall.name;
+      agent.currentTool = toolName || undefined;
       agent.errorMessage = undefined;
+      agent.activeTool = undefined;
+
+      const candidate = detectPendingApprovalCandidate(toolName, toolArgs, agent.workspacePath);
+      if (candidate) {
+        agent.activeTool = {
+          id: toolCallId || `req-${now}-${toolName}`,
+          kind: candidate.kind,
+          toolName,
+          title: candidate.title,
+          detail: candidate.detail,
+          startedAt: now,
+          delayMs: candidate.delayMs,
+          announced: candidate.delayMs <= 0,
+        };
+      }
 
       if (classified.focusText) {
         agent.focusText = classified.focusText;
@@ -547,10 +599,10 @@ export class StateStore {
       const dup = this.isDuplicateEvent(
         'hook',
         agent.id,
-        payload.toolCall.name,
+        toolName,
         classified.filePath,
         now,
-        payload.toolCall.id,
+        toolCallId,
       );
       if (classified.filePath && classified.fileName && classified.fileAction) {
         if (!dup) {
@@ -561,9 +613,9 @@ export class StateStore {
       }
       if (!dup) {
         this.pushActivity(agent, {
-          id: payload.toolCall.id || `hk-${now}-${payload.toolCall.name}`,
+          id: toolCallId || `hk-${now}-${toolName}`,
           timestamp: now,
-          toolName: payload.toolCall.name,
+          toolName,
           status: classified.status,
           summary: classified.summary,
           targetPath: classified.filePath,
@@ -571,6 +623,24 @@ export class StateStore {
         });
       }
     } else if (eventName === 'PostToolUse') {
+      const postToolCall =
+        payload.toolCall && typeof payload.toolCall === 'object' && !Array.isArray(payload.toolCall)
+          ? payload.toolCall
+          : undefined;
+      const postId =
+        typeof postToolCall?.id === 'string' && postToolCall.id.trim()
+          ? postToolCall.id.trim().slice(0, 128)
+          : undefined;
+      const postName =
+        typeof postToolCall?.name === 'string' ? postToolCall.name.trim().slice(0, 128) : undefined;
+      if (
+        !postId ||
+        !agent.activeTool ||
+        agent.activeTool.id === postId ||
+        agent.activeTool.toolName === postName
+      ) {
+        agent.activeTool = undefined;
+      }
       if (payload.error) {
         agent.status = 'error';
         agent.errorMessage = payload.error;
@@ -584,6 +654,7 @@ export class StateStore {
         });
       }
     } else if (eventName === 'Stop') {
+      agent.activeTool = undefined;
       if (payload.error) {
         agent.status = 'error';
         agent.errorMessage = payload.error;
@@ -679,6 +750,17 @@ export class StateStore {
       }
     }
 
+    // Clear stale activeTool if a newer transcript step proves the tool completed
+    // (e.g., if a PostToolUse hook was missed/dropped)
+    if (
+      agent.activeTool &&
+      ts > agent.activeTool.startedAt &&
+      (delta.lastStatus === 'idle' ||
+        (delta.lastToolName && delta.lastToolName !== agent.activeTool.toolName))
+    ) {
+      agent.activeTool = undefined;
+    }
+
     // Only override status from transcript if hook hasn't updated more recently
     if (delta.lastStatus && (!agent.lastHookAt || ts >= agent.lastHookAt)) {
       agent.status = delta.lastStatus;
@@ -690,7 +772,7 @@ export class StateStore {
     }
 
     // If this transcript's last event is already older than IDLE_TIMEOUT_MS, mark idle
-    if (agent.status !== 'idle' && now - agent.lastUpdatedAt > IDLE_TIMEOUT_MS) {
+    if (!agent.activeTool && agent.status !== 'idle' && now - agent.lastUpdatedAt > IDLE_TIMEOUT_MS) {
       agent.status = 'idle';
       agent.currentTool = undefined;
     }
@@ -698,10 +780,45 @@ export class StateStore {
     this.emitChange();
   }
 
+  private resolvePendingApproval(
+    agent: InternalAgent,
+    now: number,
+  ): PendingApprovalRequest | undefined {
+    const tool = agent.activeTool;
+    if (!tool) return undefined;
+    const elapsed = now - tool.startedAt;
+    if (elapsed < tool.delayMs || elapsed > APPROVAL_STALE_MS) {
+      return undefined;
+    }
+    return {
+      id: tool.id,
+      kind: tool.kind,
+      toolName: tool.toolName,
+      title: tool.title,
+      detail: tool.detail,
+      startedAt: tool.startedAt,
+    };
+  }
+
   tickIdleCheck(now = Date.now()): boolean {
     let changed = false;
     for (const agent of this.agents.values()) {
-      if (agent.status !== 'idle' && now - agent.lastUpdatedAt > IDLE_TIMEOUT_MS) {
+      if (agent.activeTool) {
+        const elapsed = now - agent.activeTool.startedAt;
+        if (elapsed > APPROVAL_STALE_MS) {
+          agent.activeTool = undefined;
+          changed = true;
+        } else if (!agent.activeTool.announced && elapsed >= agent.activeTool.delayMs) {
+          agent.activeTool.announced = true;
+          changed = true;
+        }
+      }
+
+      if (
+        !agent.activeTool &&
+        agent.status !== 'idle' &&
+        now - agent.lastUpdatedAt > IDLE_TIMEOUT_MS
+      ) {
         agent.status = 'idle';
         agent.currentTool = undefined;
         changed = true;
@@ -787,7 +904,9 @@ export class StateStore {
         continue;
       }
 
-      const hasActive = visibleMembers.some((m) => m.status !== 'idle');
+      const hasActive = visibleMembers.some(
+        (m) => m.status !== 'idle' || Boolean(this.resolvePendingApproval(m, now)),
+      );
       const clusterUpdatedAt = Math.max(...visibleMembers.map((m) => m.lastUpdatedAt));
       if (!hasActive && clusterUpdatedAt < cutoff) {
         continue;
@@ -826,6 +945,7 @@ export class StateStore {
           (a, b) => b.lastTouchedAt - a.lastTouchedAt,
         );
         const alias = this.customAliases.get(m.id);
+        const pendingApproval = this.resolvePendingApproval(m, now);
         agentsOut[m.id] = {
           id: m.id,
           parentId: m.parentId,
@@ -848,6 +968,7 @@ export class StateStore {
           lastHookAt: m.lastHookAt,
           createdAt: m.createdAt,
           errorMessage: m.errorMessage,
+          pendingApproval,
         };
       }
     }

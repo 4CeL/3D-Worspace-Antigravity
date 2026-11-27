@@ -333,6 +333,17 @@ export class DemoSimulator {
       lastUpdatedAt: now,
       lastHookAt: now,
       createdAt: now - 540_000,
+      pendingApproval:
+        this.tickIndex === 2
+          ? {
+              id: 'demo-req-push',
+              kind: 'permission',
+              toolName: 'run_command',
+              title: 'Butuh Izin di Luar Sandbox',
+              detail: 'git push origin main',
+              startedAt: now - 4000,
+            }
+          : undefined,
     };
 
     const sub2: AgentNode = {

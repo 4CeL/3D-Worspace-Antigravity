@@ -5,6 +5,7 @@ import { OfficeCanvas } from './scene/OfficeCanvas';
 import { TopBar } from './ui/TopBar';
 import { InspectorDrawer } from './ui/InspectorDrawer';
 import { FloorElevator } from './ui/FloorElevator';
+import { ApprovalAlerts } from './ui/ApprovalAlerts';
 import { filterSnapshotForView } from './ui/filterSnapshot';
 
 export const App: React.FC = () => {
@@ -69,8 +70,25 @@ export const App: React.FC = () => {
     return stats;
   }, [floors, filteredSnapshot.clusters, filteredSnapshot.agents]);
 
-  const allAgentsList = Object.values(filteredSnapshot.agents);
+  const allAgentsList = useMemo(
+    () => Object.values(filteredSnapshot.agents),
+    [filteredSnapshot.agents],
+  );
+  const unfilteredAgentsList = useMemo(
+    () => Object.values(snapshot.agents),
+    [snapshot.agents],
+  );
   const activeCount = allAgentsList.filter((a) => a.status !== 'idle').length;
+  const pendingAgents = useMemo(
+    () =>
+      unfilteredAgentsList
+        .filter((a) => Boolean(a.pendingApproval))
+        .sort(
+          (a, b) =>
+            (a.pendingApproval?.startedAt ?? 0) - (b.pendingApproval?.startedAt ?? 0),
+        ),
+    [unfilteredAgentsList],
+  );
   const selectedAgent = selectedAgentId ? snapshot.agents[selectedAgentId] ?? null : null;
   const selectedCluster = selectedAgent
     ? snapshot.clusters.find((c) => c.rootId === selectedAgent.rootId) ?? null
@@ -90,6 +108,19 @@ export const App: React.FC = () => {
   };
 
   const handleFocusAgent = (id: string) => {
+    // Ensure the agent's project & floor are visible if user is filtered on another project or floor
+    const cluster = snapshot.clusters.find((c) => c.agentIds.includes(id));
+    if (cluster) {
+      if (effectiveProject !== 'ALL' && cluster.projectName !== effectiveProject) {
+        setSelectedProject('ALL');
+      }
+      if (effectiveFocusedFloor !== null) {
+        const targetFloor = floors.find((f) => f.id === cluster.floorId);
+        if (targetFloor && effectiveFocusedFloor !== targetFloor.index) {
+          setFocusedFloorIndex(targetFloor.index);
+        }
+      }
+    }
     setSelectedAgentId(id);
     setFocusAgentId(id);
     setFocusNonce((n) => n + 1);
@@ -156,11 +187,17 @@ export const App: React.FC = () => {
         showLabels={showLabels}
         hideFinished={hideFinished}
         hiddenCount={snapshot.hiddenCount ?? 0}
+        pendingCount={pendingAgents.length}
         onSelectProject={setSelectedProject}
         onChangeRecency={setRecency}
         onToggleLabels={() => setShowLabels((v) => !v)}
         onToggleHideFinished={() => setHideFinished((v) => !v)}
         onUnhideAll={() => void unhideAllAgents()}
+        onFocusPending={() => {
+          if (pendingAgents[0]) {
+            handleFocusAgent(pendingAgents[0].id);
+          }
+        }}
         onToggleDemo={() => {
           setFocusedFloorIndex(null);
           setFloorFocusNonce((n) => n + 1);
@@ -194,6 +231,8 @@ export const App: React.FC = () => {
         onMoveTeamFloor={(rootId, floorId) => void handleMoveTeamFloor(rootId, floorId)}
         onHideAgent={(id) => void handleHideAgent(id)}
       />
+
+      <ApprovalAlerts agents={unfilteredAgentsList} onFocusAgent={handleFocusAgent} />
 
       {/* Cozy empty-state card when no recent Antigravity sessions are visible */}
       {filteredSnapshot.clusters.length === 0 && (

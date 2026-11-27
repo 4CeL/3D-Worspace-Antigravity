@@ -6,6 +6,7 @@ import type { AgentNode } from '@office/shared';
 import { TopBar } from '../ui/TopBar';
 import { InspectorDrawer } from '../ui/InspectorDrawer';
 import { FloorElevator } from '../ui/FloorElevator';
+import { ApprovalAlerts } from '../ui/ApprovalAlerts';
 import { useOfficeSocket } from '../hooks/useOfficeSocket';
 import { filterSnapshotForView } from '../ui/filterSnapshot';
 
@@ -151,6 +152,38 @@ describe('TopBar', () => {
     fireEvent.click(restoreBtn);
     expect(onUnhideAll).toHaveBeenCalledTimes(1);
   });
+
+  it('shows Butuh Izin badge when pendingCount > 0 and triggers onFocusPending on click', () => {
+    const onFocusPending = vi.fn();
+
+    render(
+      <TopBar
+        activeCount={2}
+        totalCount={3}
+        connected={true}
+        hookActive={true}
+        demoMode={false}
+        projects={['3D Workspace']}
+        selectedProject="ALL"
+        recency="30m"
+        showLabels={true}
+        hideFinished={false}
+        pendingCount={2}
+        onSelectProject={vi.fn()}
+        onChangeRecency={vi.fn()}
+        onToggleLabels={vi.fn()}
+        onToggleHideFinished={vi.fn()}
+        onFocusPending={onFocusPending}
+        onToggleDemo={vi.fn()}
+        onResetCamera={vi.fn()}
+      />,
+    );
+
+    const pendingBtn = screen.getByRole('button', { name: /Fokus agent yang butuh izin/i });
+    expect(pendingBtn).toHaveTextContent(/2 Butuh Izin/i);
+    fireEvent.click(pendingBtn);
+    expect(onFocusPending).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('InspectorDrawer', () => {
@@ -261,6 +294,33 @@ describe('InspectorDrawer', () => {
     const hideBtn = screen.getByRole('button', { name: /Sembunyikan Meja/i });
     fireEvent.click(hideBtn);
     expect(onHideAgent).toHaveBeenCalledWith('lead-1');
+  });
+
+  it('renders pending approval callout banner when agent.pendingApproval is set', () => {
+    const waitingAgent: AgentNode = {
+      ...leadAgent,
+      pendingApproval: {
+        id: 'req-42',
+        kind: 'permission',
+        toolName: 'run_command',
+        title: 'Izin menjalankan command',
+        detail: 'npm run deploy --prod',
+        startedAt: Date.now() - 4000,
+      },
+    };
+
+    render(
+      <InspectorDrawer
+        agent={waitingAgent}
+        allAgents={{ [waitingAgent.id]: waitingAgent }}
+        onClose={vi.fn()}
+        onFocusAgent={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Butuh Persetujuan/i)).toBeInTheDocument();
+    expect(screen.getByText('Izin menjalankan command')).toBeInTheDocument();
+    expect(screen.getByText('npm run deploy --prod')).toBeInTheDocument();
   });
 });
 
@@ -473,5 +533,191 @@ describe('filterSnapshotForView', () => {
     expect(result.snapshot.clusters).toHaveLength(1);
     expect(result.snapshot.clusters[0].agentIds).toEqual([activeSub.id]);
     expect(result.snapshot.clusters[0].leadAgentId).toBe(activeSub.id);
+  });
+
+  it('keeps an agent with pendingApproval visible even when hideFinished is enabled', () => {
+    const idleWaitingLead: AgentNode = {
+      ...leadAgent,
+      status: 'idle',
+      pendingApproval: {
+        id: 'req-keep',
+        kind: 'question',
+        toolName: 'ask_question',
+        title: 'Menunggu Jawaban Kamu',
+        detail: 'Lanjut deploy?',
+        startedAt: Date.now(),
+      },
+    };
+    const snap = {
+      generatedAt: Date.now(),
+      hookActive: true,
+      lastHookAt: Date.now(),
+      demoMode: false,
+      floors: [{ id: 'floor-1', index: 1, name: 'Lantai 1' }],
+      clusters: [
+        {
+          rootId: idleWaitingLead.id,
+          projectName: '3D Workspace',
+          title: idleWaitingLead.displayName,
+          leadAgentId: idleWaitingLead.id,
+          agentIds: [idleWaitingLead.id],
+          floorId: 'floor-1',
+          lastUpdatedAt: Date.now(),
+        },
+      ],
+      agents: { [idleWaitingLead.id]: idleWaitingLead },
+      activePulses: [],
+    };
+
+    const result = filterSnapshotForView(snap, 'ALL', true);
+    expect(result.snapshot.clusters).toHaveLength(1);
+    expect(result.snapshot.agents[idleWaitingLead.id]?.pendingApproval?.id).toBe('req-keep');
+  });
+});
+
+describe('ApprovalAlerts', () => {
+  it('renders nothing without pendingApproval, displays alert cards, focuses agent on Lihat Meja, and dismisses cleanly', () => {
+    const onFocusAgent = vi.fn();
+
+    const { container, rerender } = render(
+      <ApprovalAlerts agents={[leadAgent, subAgent]} onFocusAgent={onFocusAgent} />,
+    );
+    expect(container.firstChild).toBeNull();
+
+    const waitingAgent: AgentNode = {
+      ...leadAgent,
+      pendingApproval: {
+        id: 'req-1',
+        kind: 'permission',
+        toolName: 'run_command',
+        title: 'Butuh izin menjalankan terminal',
+        detail: 'rm -rf dist && npm run build',
+        startedAt: Date.now() - 5000,
+      },
+    };
+
+    rerender(<ApprovalAlerts agents={[waitingAgent, subAgent]} onFocusAgent={onFocusAgent} />);
+
+    expect(screen.getByText('Bangun Kantor 3D')).toBeInTheDocument();
+    expect(screen.getByText('Butuh izin menjalankan terminal')).toBeInTheDocument();
+    expect(screen.getByText('rm -rf dist && npm run build')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Lihat Meja/i }));
+    expect(onFocusAgent).toHaveBeenCalledWith('lead-1');
+
+    // Dismiss hides req-1 cleanly
+    fireEvent.click(screen.getByRole('button', { name: /Tutup notifikasi/i }));
+    expect(screen.queryByText('Butuh izin menjalankan terminal')).not.toBeInTheDocument();
+
+    // A brand-new request ID re-appears cleanly
+    const nextRequestAgent: AgentNode = {
+      ...leadAgent,
+      pendingApproval: {
+        id: 'req-2',
+        kind: 'question',
+        toolName: 'ask_user',
+        title: 'Menunggu pilihan arsitektur',
+        detail: 'Pilih PostgreSQL atau SQLite?',
+        startedAt: Date.now(),
+      },
+    };
+    rerender(<ApprovalAlerts agents={[nextRequestAgent]} onFocusAgent={onFocusAgent} />);
+    expect(screen.getByText('Menunggu pilihan arsitektur')).toBeInTheDocument();
+    expect(screen.getByText(/Jawab pertanyaan di jendela Antigravity/i)).toBeInTheDocument();
+  });
+
+  it('reuses a single AudioContext across chimes, closes it on unmount, and prunes resolved dismissedIds so repeating IDs re-appear', () => {
+    let createdCount = 0;
+    const closeSpy = vi.fn().mockResolvedValue(undefined);
+    const oscStartSpy = vi.fn();
+
+    class FakeAudioContext {
+      state: AudioContextState = 'running';
+      currentTime = 0;
+      destination = {};
+      constructor() {
+        createdCount += 1;
+      }
+      resume() {
+        return Promise.resolve();
+      }
+      close() {
+        this.state = 'closed';
+        return closeSpy();
+      }
+      createOscillator() {
+        return {
+          type: 'sine',
+          frequency: { setValueAtTime: vi.fn() },
+          connect: vi.fn(),
+          start: oscStartSpy,
+          stop: vi.fn(),
+        };
+      }
+      createGain() {
+        return {
+          gain: {
+            setValueAtTime: vi.fn(),
+            exponentialRampToValueAtTime: vi.fn(),
+          },
+          connect: vi.fn(),
+        };
+      }
+    }
+
+    const origAudioCtx = window.AudioContext;
+    Object.defineProperty(window, 'AudioContext', {
+      value: FakeAudioContext,
+      configurable: true,
+    });
+    let fakeNow = 1_700_000_000_000;
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => fakeNow);
+
+    try {
+      const demoReqAgent: AgentNode = {
+        ...leadAgent,
+        pendingApproval: {
+          id: 'demo-req-push',
+          kind: 'permission',
+          toolName: 'run_command',
+          title: 'Butuh Izin di Luar Sandbox',
+          detail: 'git push origin main',
+          startedAt: fakeNow - 2000,
+        },
+      };
+
+      const { rerender, unmount } = render(
+        <ApprovalAlerts agents={[demoReqAgent]} onFocusAgent={vi.fn()} />,
+      );
+
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(createdCount).toBe(1);
+      expect(oscStartSpy).toHaveBeenCalledTimes(2); // 2-note chime
+
+      // Dismiss while active
+      fireEvent.click(screen.getByRole('button', { name: /Tutup notifikasi/i }));
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+      // Request resolves (leaves list) -> stale dismissedId & seenId are pruned
+      rerender(<ApprovalAlerts agents={[leadAgent]} onFocusAgent={vi.fn()} />);
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+      // Repeating demo request arrives in next cycle (past 1.5s chime cooldown) -> re-appears & reuses existing AudioContext
+      fakeNow += 2500;
+      rerender(<ApprovalAlerts agents={[demoReqAgent]} onFocusAgent={vi.fn()} />);
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(createdCount).toBe(1);
+      expect(oscStartSpy).toHaveBeenCalledTimes(4);
+
+      // Unmount closes the single AudioContext cleanly
+      unmount();
+      expect(closeSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      nowSpy.mockRestore();
+      Object.defineProperty(window, 'AudioContext', {
+        value: origAudioCtx,
+        configurable: true,
+      });
+    }
   });
 });

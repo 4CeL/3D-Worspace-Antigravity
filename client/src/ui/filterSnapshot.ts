@@ -24,7 +24,10 @@ export function filterSnapshotForView(
     .filter((c) => effectiveProject === 'ALL' || c.projectName === effectiveProject)
     .map((c) => {
       if (!hideFinished) return c;
-      const activeIds = c.agentIds.filter((id) => snapshot.agents[id]?.status !== 'idle');
+      const activeIds = c.agentIds.filter((id) => {
+        const agent = snapshot.agents[id];
+        return Boolean(agent && (agent.status !== 'idle' || agent.pendingApproval));
+      });
       if (activeIds.length === 0) return { ...c, agentIds: [] };
       const leadAgentId = activeIds.includes(c.leadAgentId) ? c.leadAgentId : activeIds[0];
       return { ...c, leadAgentId, agentIds: activeIds };

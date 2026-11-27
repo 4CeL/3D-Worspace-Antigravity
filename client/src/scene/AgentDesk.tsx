@@ -55,9 +55,24 @@ export const AgentDesk: React.FC<AgentDeskProps> = ({
     };
   }, []);
 
-  const style = STATUS_STYLE[agent.status] ?? STATUS_STYLE.idle;
+  const style = Object.prototype.hasOwnProperty.call(STATUS_STYLE, agent.status)
+    ? STATUS_STYLE[agent.status]
+    : STATUS_STYLE.idle;
   const deskWidth = isLead ? 1.72 : 1.44;
   const isActive = agent.status !== 'idle';
+  const pending = agent.pendingApproval;
+  const isQuestion = pending?.kind === 'question';
+  const screenColor = pending ? (isQuestion ? '#818cf8' : '#f59e0b') : style.screen;
+  const screenEmissive = pending ? 0.95 : isActive ? 0.65 : 0.12;
+  const secondaryScreenEmissive = pending ? 0.95 : isActive ? 0.4 : 0.08;
+  const ringColor = isSelected
+    ? '#10b981'
+    : pending
+      ? isQuestion
+        ? '#6366f1'
+        : '#f59e0b'
+      : '#f59e0b';
+  const ringOpacity = isSelected || pending ? 0.85 : 0.45;
 
   const showFileInPill =
     Boolean(agent.currentFile) && (agent.status === 'editing' || agent.status === 'reading');
@@ -88,18 +103,14 @@ export const AgentDesk: React.FC<AgentDeskProps> = ({
         document.body.style.cursor = 'auto';
       }}
     >
-      {/* Selection / Hover ring on floor */}
-      {(isSelected || hovered) && (
+      {/* Selection / Hover / Attention ring on floor */}
+      {(isSelected || hovered || Boolean(pending)) && (
         <mesh
           position={[0, 0.03, sharedTable ? 0.56 : 0.15]}
           rotation={[-Math.PI / 2, 0, 0]}
         >
           <ringGeometry args={sharedTable ? [0.52, 0.64, 28] : [1.05, 1.2, 32]} />
-          <meshBasicMaterial
-            color={isSelected ? '#10b981' : '#f59e0b'}
-            transparent
-            opacity={isSelected ? 0.85 : 0.45}
-          />
+          <meshBasicMaterial color={ringColor} transparent opacity={ringOpacity} />
         </mesh>
       )}
 
@@ -141,9 +152,9 @@ export const AgentDesk: React.FC<AgentDeskProps> = ({
         <mesh position={[0, 0, 0.03]}>
           <planeGeometry args={[0.62, 0.36]} />
           <meshStandardMaterial
-            color={style.screen}
-            emissive={style.screen}
-            emissiveIntensity={isActive ? 0.65 : 0.12}
+            color={screenColor}
+            emissive={screenColor}
+            emissiveIntensity={screenEmissive}
             roughness={0.25}
           />
         </mesh>
@@ -164,9 +175,9 @@ export const AgentDesk: React.FC<AgentDeskProps> = ({
             <mesh position={[0, 0, 0.03]}>
               <planeGeometry args={[0.46, 0.3]} />
               <meshStandardMaterial
-                color={style.screen}
-                emissive={style.screen}
-                emissiveIntensity={isActive ? 0.4 : 0.08}
+                color={screenColor}
+                emissive={screenColor}
+                emissiveIntensity={secondaryScreenEmissive}
                 roughness={0.3}
               />
             </mesh>
@@ -204,7 +215,39 @@ export const AgentDesk: React.FC<AgentDeskProps> = ({
       </group>
 
       {/* Stylized character (hidden while roaming away from desk) */}
-      {!isAway && <AgentAvatar status={agent.status} isLead={isLead} seed={agent.id} />}
+      {!isAway && (
+        <AgentAvatar
+          status={agent.status}
+          isLead={isLead}
+          seed={agent.id}
+          needsAttention={Boolean(pending)}
+        />
+      )}
+
+      {/* Animated floating attention badge when waiting for user approval/answer */}
+      {!isAway && pending && (
+        <Html
+          position={[0, showLabels || isSelected ? 3.05 : 2.38, sharedTable ? 0.56 : 0]}
+          center
+          distanceFactor={14}
+          zIndexRange={[14, 0]}
+        >
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(agent.id);
+            }}
+            className={`animate-bounce whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[11px] font-bold text-white shadow-lg transition hover:scale-105 ${
+              isQuestion
+                ? 'border-indigo-300 bg-indigo-600'
+                : 'border-amber-300 bg-amber-500'
+            }`}
+          >
+            {isQuestion ? '❓ Tanya User' : '✋ Butuh Izin'}
+          </button>
+        </Html>
+      )}
 
       {/* Floating desk file badge (rendered on RoamingAgent while away) */}
       {!isAway && (showLabels || isSelected) && (

@@ -24,11 +24,13 @@ interface TopBarProps {
   showLabels: boolean;
   hideFinished: boolean;
   hiddenCount?: number;
+  pendingCount?: number;
   onSelectProject: (project: string) => void;
   onChangeRecency: (recency: RecencyWindow) => void;
   onToggleLabels: () => void;
   onToggleHideFinished: () => void;
   onUnhideAll?: () => void;
+  onFocusPending?: () => void;
   onToggleDemo: () => void;
   onResetCamera: () => void;
 }
@@ -51,11 +53,13 @@ export const TopBar: React.FC<TopBarProps> = ({
   showLabels,
   hideFinished,
   hiddenCount = 0,
+  pendingCount = 0,
   onSelectProject,
   onChangeRecency,
   onToggleLabels,
   onToggleHideFinished,
   onUnhideAll,
+  onFocusPending,
   onToggleDemo,
   onResetCamera,
 }) => {
@@ -84,6 +88,17 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span>{activeCount} Aktif</span>
           <span className="font-normal text-emerald-600/80">/ {totalCount}</span>
         </div>
+
+        {pendingCount > 0 && (
+          <button
+            type="button"
+            aria-label="Fokus agent yang butuh izin"
+            onClick={() => onFocusPending?.()}
+            className="flex animate-pulse items-center gap-1 rounded-full border border-amber-300 bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-900 shadow-xs transition hover:bg-amber-200"
+          >
+            <span>✋ {pendingCount} Butuh Izin</span>
+          </button>
+        )}
 
         {/* Project filter */}
         <select

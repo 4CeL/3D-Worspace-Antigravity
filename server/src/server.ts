@@ -187,7 +187,7 @@ export async function createOfficeServer(
 
   const idleTimer = setInterval(() => {
     stateStore.tickIdleCheck();
-  }, 2000);
+  }, 1000);
   idleTimer.unref();
 
   const server = http.createServer(async (req, res) => {

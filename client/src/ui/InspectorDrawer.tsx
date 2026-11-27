@@ -6,6 +6,8 @@ import {
   EyeOff,
   FileCode2,
   FolderGit2,
+  Hand,
+  HelpCircle,
   Layers,
   Pencil,
   RotateCcw,
@@ -89,7 +91,9 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
 
   if (!agent) return null;
 
-  const badge = STATUS_BADGE[agent.status];
+  const badge = Object.prototype.hasOwnProperty.call(STATUS_BADGE, agent.status)
+    ? STATUS_BADGE[agent.status]
+    : STATUS_BADGE.idle;
   const parentAgent = agent.parentId ? allAgents[agent.parentId] : null;
   const childAgents = Object.values(allAgents).filter((a) => a.parentId === agent.id);
 
@@ -231,6 +235,45 @@ export const InspectorDrawer: React.FC<InspectorDrawerProps> = ({
             {agent.projectName}
           </span>
         </div>
+
+        {/* Highlighted Pending Approval / Question Callout Banner */}
+        {agent.pendingApproval && (
+          <div
+            role="status"
+            className={`mt-2.5 rounded-2xl border p-3 ${
+              agent.pendingApproval.kind === 'question'
+                ? 'border-indigo-300 bg-indigo-50/90 text-indigo-950'
+                : 'border-amber-300 bg-amber-50/95 text-amber-950'
+            }`}
+          >
+            <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide">
+              {agent.pendingApproval.kind === 'question' ? (
+                <HelpCircle className="h-3.5 w-3.5 shrink-0 animate-pulse text-indigo-600" />
+              ) : (
+                <Hand className="h-3.5 w-3.5 shrink-0 animate-pulse text-amber-600" />
+              )}
+              <span>
+                {agent.pendingApproval.kind === 'question'
+                  ? 'Menunggu Jawaban User'
+                  : 'Butuh Persetujuan'}
+              </span>
+            </div>
+            <p className="mt-1 text-xs font-bold">{agent.pendingApproval.title}</p>
+            {agent.pendingApproval.detail && (
+              <p
+                title={agent.pendingApproval.detail}
+                className="mt-1 break-words rounded-xl bg-white/80 px-2.5 py-1.5 font-mono text-[11px] text-stone-700"
+              >
+                {agent.pendingApproval.detail}
+              </p>
+            )}
+            <p className="mt-1.5 text-[11px] opacity-80">
+              {agent.pendingApproval.kind === 'question'
+                ? 'Jawab pertanyaan ini di jendela Antigravity untuk melanjutkan.'
+                : 'Konfirmasi Yes / No di jendela Antigravity untuk melanjutkan.'}
+            </p>
+          </div>
+        )}
 
         {/* Team floor selector */}
         {floors && floors.length > 0 && onMoveTeamFloor && (

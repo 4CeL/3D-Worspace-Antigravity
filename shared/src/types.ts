@@ -11,6 +11,17 @@ export type FileAction = 'read' | 'edit' | 'write';
 
 export type RecencyWindow = '30m' | '2h' | 'today';
 
+export type PendingRequestKind = 'permission' | 'question' | 'tool_wait';
+
+export interface PendingApprovalRequest {
+  id: string;
+  kind: PendingRequestKind;
+  toolName: string;
+  title: string;
+  detail: string;
+  startedAt: number;
+}
+
 export interface FileTouch {
   path: string;
   relativePath: string;
@@ -57,6 +68,7 @@ export interface AgentNode {
   lastHookAt?: number;
   createdAt: number;
   errorMessage?: string;
+  pendingApproval?: PendingApprovalRequest;
 }
 
 export type FloorTheme = 'engineering' | 'lobby' | 'creative' | 'pantry';

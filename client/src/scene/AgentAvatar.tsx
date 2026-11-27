@@ -11,6 +11,7 @@ interface AgentAvatarProps {
   seed: string;
   posture?: AvatarPosture;
   holdMug?: boolean;
+  needsAttention?: boolean;
 }
 
 const SHIRT_PALETTE = ['#3b82f6', '#8b5cf6', '#0d9488', '#e11d48', '#d97706', '#2563eb'];
@@ -31,6 +32,7 @@ export const AgentAvatar: React.FC<AgentAvatarProps> = ({
   seed,
   posture = 'seated',
   holdMug = false,
+  needsAttention = false,
 }) => {
   const rootRef = useRef<THREE.Group>(null);
   const headRef = useRef<THREE.Group>(null);
@@ -47,7 +49,7 @@ export const AgentAvatar: React.FC<AgentAvatarProps> = ({
   const hairColor = HAIR_PALETTE[(hash >> 3) % HAIR_PALETTE.length];
 
   const isSeated = posture === 'seated';
-  const showMug = isSeated ? status === 'idle' : holdMug || posture === 'standing';
+  const showMug = isSeated ? status === 'idle' && !needsAttention : holdMug || posture === 'standing';
 
   useFrame(({ clock }) => {
     const t = clock.getElapsedTime() + (hash % 7);
@@ -74,7 +76,11 @@ export const AgentAvatar: React.FC<AgentAvatarProps> = ({
     }
 
     if (headRef.current) {
-      if (posture === 'walking') {
+      if (isSeated && needsAttention) {
+        headRef.current.rotation.x = -0.14;
+        headRef.current.rotation.y = Math.sin(t * 2.4) * 0.18;
+        headRef.current.rotation.z = 0;
+      } else if (posture === 'walking') {
         headRef.current.rotation.x = 0.02 + Math.sin(t * 9) * 0.03;
         headRef.current.rotation.y = Math.sin(t * 1.6) * 0.1;
         headRef.current.rotation.z = 0;
@@ -100,8 +106,10 @@ export const AgentAvatar: React.FC<AgentAvatarProps> = ({
         headRef.current.rotation.z = 0;
       } else if (status === 'thinking') {
         headRef.current.rotation.x = -0.06 + Math.sin(t * 1.8) * 0.05;
+        headRef.current.rotation.y = 0;
         headRef.current.rotation.z = Math.sin(t * 1.4) * 0.1;
       } else if (status === 'error') {
+        headRef.current.rotation.x = 0;
         headRef.current.rotation.y = Math.sin(t * 12) * 0.18;
         headRef.current.rotation.z = 0;
       } else {
@@ -112,7 +120,10 @@ export const AgentAvatar: React.FC<AgentAvatarProps> = ({
     }
 
     if (torsoRef.current) {
-      if (posture === 'walking') {
+      if (isSeated && needsAttention) {
+        torsoRef.current.rotation.x = 0.04;
+        torsoRef.current.rotation.y = 0;
+      } else if (posture === 'walking') {
         torsoRef.current.rotation.x = 0.06;
         torsoRef.current.rotation.y = Math.sin(t * 9) * 0.06;
       } else if (posture === 'chatting') {
@@ -134,7 +145,10 @@ export const AgentAvatar: React.FC<AgentAvatarProps> = ({
     }
 
     if (leftArmRef.current && rightArmRef.current) {
-      if (posture === 'walking') {
+      if (isSeated && needsAttention) {
+        leftArmRef.current.rotation.x = -0.35;
+        rightArmRef.current.rotation.x = -2.35 + Math.sin(t * 7) * 0.25;
+      } else if (posture === 'walking') {
         const swing = Math.sin(t * 9) * 0.45;
         leftArmRef.current.rotation.x = -swing;
         rightArmRef.current.rotation.x = holdMug ? -0.65 : swing;
