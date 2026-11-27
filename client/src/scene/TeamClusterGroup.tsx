@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Html } from '@react-three/drei';
+import { Check, Pencil, RotateCcw, X } from 'lucide-react';
 import type { AgentNode } from '@office/shared';
 import type { ClusterPlacement, DeskPlacement, SharedTableSpec } from './officeLayout';
 import { AgentDesk } from './AgentDesk';
@@ -12,6 +13,8 @@ interface TeamClusterGroupProps {
   showLabels: boolean;
   roamingAgentIds?: ReadonlySet<string>;
   onSelectAgent: (agentId: string) => void;
+  onFocusRoom?: (cluster: ClusterPlacement) => void;
+  onRenameRoom?: (rootId: string, name: string | null) => void;
 }
 
 const disableRaycast = () => null;
@@ -147,6 +150,8 @@ export const TeamClusterGroup: React.FC<TeamClusterGroupProps> = ({
   showLabels,
   roamingAgentIds,
   onSelectAgent,
+  onFocusRoom,
+  onRenameRoom,
 }) => {
   const [cx, cy, cz] = cluster.center;
   const labelPos: [number, number, number] = cluster.doorPosition
@@ -155,6 +160,31 @@ export const TeamClusterGroup: React.FC<TeamClusterGroupProps> = ({
 
   const hasSharedTable = Boolean(cluster.table);
   const subCount = Math.max(0, cluster.agentIds.length - 1);
+  const displayName = cluster.roomName || cluster.projectName;
+
+  const [editingRoom, setEditingRoom] = useState(false);
+  const [draftName, setDraftName] = useState(displayName);
+
+  useEffect(() => {
+    setEditingRoom(false);
+    setDraftName(displayName);
+  }, [cluster.rootId]);
+
+  useEffect(() => {
+    if (!editingRoom) {
+      setDraftName(displayName);
+    }
+  }, [displayName, editingRoom]);
+
+  const commitRename = () => {
+    const trimmed = draftName.trim();
+    if (trimmed && trimmed !== displayName) {
+      onRenameRoom?.(cluster.rootId, trimmed);
+    } else if (!trimmed) {
+      setDraftName(displayName);
+    }
+    setEditingRoom(false);
+  };
 
   return (
     <group>
@@ -175,11 +205,114 @@ export const TeamClusterGroup: React.FC<TeamClusterGroupProps> = ({
         <SharedConferenceTable table={cluster.table} hasFacingSubs={subCount >= 2} />
       )}
 
-      {/* Architectural glass-suite door-header project nameplate */}
-      <Html position={labelPos} center distanceFactor={18} zIndexRange={[5, 0]}>
-        <div className="pointer-events-none select-none whitespace-nowrap rounded-full border border-stone-200/90 bg-white/90 px-2.5 py-0.5 text-[10px] font-semibold tracking-wide text-stone-700 shadow-sm backdrop-blur-xs">
-          {cluster.projectName}
-        </div>
+      {/* Interactive architectural glass-suite door-header nameplate (click to focus + inline rename) */}
+      <Html position={labelPos} center distanceFactor={18} zIndexRange={[15, 0]}>
+        {editingRoom ? (
+          <div
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-1 rounded-full border border-emerald-400 bg-white/95 px-2 py-0.5 shadow-md backdrop-blur-sm"
+          >
+            <input
+              type="text"
+              aria-label="Nama ruangan baru"
+              autoFocus
+              maxLength={40}
+              value={draftName}
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => setDraftName(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  e.nativeEvent.stopPropagation();
+                  commitRename();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  e.nativeEvent.stopPropagation();
+                  setEditingRoom(false);
+                  setDraftName(displayName);
+                }
+              }}
+              className="w-28 bg-transparent text-[10px] font-semibold text-stone-800 outline-none"
+            />
+            <button
+              type="button"
+              aria-label="Simpan nama ruangan"
+              onClick={(e) => {
+                e.stopPropagation();
+                commitRename();
+              }}
+              className="rounded-full p-0.5 text-emerald-600 transition hover:bg-emerald-50"
+            >
+              <Check className="h-3 w-3" />
+            </button>
+            <button
+              type="button"
+              aria-label="Batal ganti nama ruangan"
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditingRoom(false);
+                setDraftName(displayName);
+              }}
+              className="rounded-full p-0.5 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
+            >
+              <X className="h-3 w-3" />
+            </button>
+            {cluster.hasCustomRoomName && onRenameRoom && (
+              <button
+                type="button"
+                aria-label="Reset nama ruangan"
+                title="Kembalikan ke nama project default"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRenameRoom(cluster.rootId, null);
+                  setEditingRoom(false);
+                }}
+                className="rounded-full p-0.5 text-stone-400 transition hover:bg-amber-50 hover:text-amber-600"
+              >
+                <RotateCcw className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+        ) : (
+          <div
+            onPointerDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            className="group flex items-center gap-1 whitespace-nowrap rounded-full border border-stone-200/90 bg-white/92 pl-2.5 pr-1.5 py-0.5 shadow-sm backdrop-blur-xs transition hover:border-emerald-400"
+          >
+            <button
+              type="button"
+              title="Klik untuk fokus ke ruangan ini"
+              onClick={(e) => {
+                e.stopPropagation();
+                onFocusRoom?.(cluster);
+              }}
+              className="cursor-pointer text-[10px] font-semibold tracking-wide text-stone-700 transition hover:text-emerald-700"
+            >
+              {displayName}
+            </button>
+            {onRenameRoom && (
+              <button
+                type="button"
+                aria-label="Ganti nama ruangan"
+                title="Ganti nama ruangan"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDraftName(displayName);
+                  setEditingRoom(true);
+                }}
+                className="rounded-full p-0.5 text-stone-400 transition hover:bg-stone-100 hover:text-emerald-700"
+              >
+                <Pencil className="h-2.5 w-2.5" />
+              </button>
+            )}
+          </div>
+        )}
       </Html>
 
       {/* Team seats around the shared conference table */}

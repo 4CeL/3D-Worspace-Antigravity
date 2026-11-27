@@ -5,6 +5,7 @@ import {
   FIXED_FLOOR_WIDTH,
   FLOOR_HEIGHT,
   computeOfficeLayout,
+  computeRoomFocusPose,
   resolveFloorTheme,
 } from '../scene/officeLayout';
 
@@ -379,5 +380,66 @@ describe('computeOfficeLayout', () => {
       expect(Math.abs(chairBackZ - sz)).toBeLessThanOrEqual(suite.depth / 2 - 0.5);
       expect(Math.abs(desk.position[0] - sx)).toBeLessThanOrEqual(suite.width / 2 - 0.5);
     }
+  });
+
+  it('preserves roomName & hasCustomRoomName on ClusterPlacement with fallback to projectName', () => {
+    const agents: Record<string, AgentNode> = {
+      'lead-1': makeAgent('lead-1', null, 'lead-1'),
+      'lead-2': makeAgent('lead-2', null, 'lead-2'),
+    };
+    const clusters: TeamCluster[] = [
+      {
+        rootId: 'lead-1',
+        projectName: '3D Workspace',
+        roomName: 'War Room Alpha',
+        hasCustomRoomName: true,
+        title: 'Task 1',
+        leadAgentId: 'lead-1',
+        agentIds: ['lead-1'],
+        floorId: 'floor-1',
+        lastUpdatedAt: Date.now(),
+      },
+      {
+        rootId: 'lead-2',
+        projectName: 'Mobile App',
+        title: 'Task 2',
+        leadAgentId: 'lead-2',
+        agentIds: ['lead-2'],
+        floorId: 'floor-1',
+        lastUpdatedAt: Date.now(),
+      },
+    ];
+
+    const layout = computeOfficeLayout(clusters, agents);
+    expect(layout.clusters[0].roomName).toBe('War Room Alpha');
+    expect(layout.clusters[0].hasCustomRoomName).toBe(true);
+    expect(layout.clusters[1].roomName).toBe('Mobile App');
+    expect(layout.clusters[1].hasCustomRoomName).toBe(false);
+  });
+
+  it('computes exact front-on centered camera pose in computeRoomFocusPose strictly within OrbitControls bounds', () => {
+    const pose = computeRoomFocusPose([-4.6, 5.4, -7.05]);
+    expect(pose.target[0]).toBeCloseTo(-4.6);
+    expect(pose.target[1]).toBeCloseTo(6.25);
+    expect(pose.target[2]).toBeCloseTo(-7.05);
+    expect(pose.pos[0]).toBeCloseTo(-4.6);
+    expect(pose.pos[1]).toBeCloseTo(17.45);
+    expect(pose.pos[2]).toBeCloseTo(4.75);
+
+    // Verify distance & polar angle lie strictly inside CameraRig OrbitControls clamps
+    // (minDistance = 5, maxDistance >= 42, minPolarAngle = 0.32, maxPolarAngle = Math.PI / 2.22)
+    const dx = pose.pos[0] - pose.target[0];
+    const dy = pose.pos[1] - pose.target[1];
+    const dz = pose.pos[2] - pose.target[2];
+    const distance = Math.hypot(dx, dy, dz);
+    const polarAngle = Math.acos(dy / distance);
+
+    expect(dx).toBeCloseTo(0);
+    expect(dz).toBeGreaterThan(0);
+    expect(distance).toBeCloseTo(16.269, 2);
+    expect(distance).toBeGreaterThan(5);
+    expect(distance).toBeLessThan(42);
+    expect(polarAngle).toBeGreaterThan(0.32);
+    expect(polarAngle).toBeLessThan(Math.PI / 2.22);
   });
 });

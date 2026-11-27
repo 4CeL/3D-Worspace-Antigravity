@@ -84,11 +84,14 @@ export interface BuildingConfig {
   floors: FloorConfig[];
   teamFloors: Record<string, string>;
   hiddenAgents?: string[];
+  roomNames?: Record<string, string>;
 }
 
 export interface TeamCluster {
   rootId: string;
   projectName: string;
+  roomName?: string;
+  hasCustomRoomName?: boolean;
   workspacePath?: string;
   title: string;
   leadAgentId: string;

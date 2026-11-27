@@ -3,7 +3,7 @@ import { OrbitControls } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
-import { FLOOR_HEIGHT } from './officeLayout';
+import { FLOOR_HEIGHT, type RoomFocusPose } from './officeLayout';
 
 interface CameraRigProps {
   floorSize: number;
@@ -12,6 +12,8 @@ interface CameraRigProps {
   floorFocusNonce: number;
   focusTarget: [number, number, number] | null;
   focusNonce: number;
+  roomFocusPose?: RoomFocusPose | null;
+  roomFocusNonce?: number;
   resetNonce: number;
 }
 
@@ -22,6 +24,8 @@ export const CameraRig: React.FC<CameraRigProps> = ({
   floorFocusNonce,
   focusTarget,
   focusNonce,
+  roomFocusPose = null,
+  roomFocusNonce = 0,
   resetNonce,
 }) => {
   const controlsRef = useRef<OrbitControlsImpl>(null);
@@ -40,6 +44,9 @@ export const CameraRig: React.FC<CameraRigProps> = ({
 
   const focusTargetRef = useRef(focusTarget);
   focusTargetRef.current = focusTarget;
+
+  const roomFocusPoseRef = useRef(roomFocusPose);
+  roomFocusPoseRef.current = roomFocusPose;
 
   const computeOverviewPose = () => {
     const floors = Math.max(1, visibleFloorCountRef.current);
@@ -68,6 +75,14 @@ export const CameraRig: React.FC<CameraRigProps> = ({
     desiredTarget.current = new THREE.Vector3(x, y + 0.8, z);
     desiredPos.current = new THREE.Vector3(x + 7.5, y + 7.2, z + 7.5);
   }, [focusNonce]);
+
+  // Glide front-on into a clicked Glass Suite room
+  useEffect(() => {
+    if (roomFocusNonce === 0 || !roomFocusPoseRef.current) return;
+    const pose = roomFocusPoseRef.current;
+    desiredTarget.current = new THREE.Vector3(...pose.target);
+    desiredPos.current = new THREE.Vector3(...pose.pos);
+  }, [roomFocusNonce]);
 
   // Glide to focused floor or building overview
   useEffect(() => {

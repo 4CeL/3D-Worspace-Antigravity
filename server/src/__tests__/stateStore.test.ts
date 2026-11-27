@@ -855,6 +855,90 @@ describe('StateStore', () => {
     expect(store.hideAgent('c-edge')).toBe(true);
     expect(store.getSnapshot({ now: t2 }).agents['c-edge']).toBeUndefined();
   });
+
+  it('supports setRoomName (set, trim/40-char cap, reset with null/empty) and persists via building config normalization', () => {
+    const store = new StateStore();
+    const onChange = vi.fn();
+    store.onChange(onChange);
+    const t0 = 1_700_000_000_000;
+
+    store.applyHookEvent(
+      {
+        hookEventName: 'SessionStart',
+        conversationId: 'room-root-1',
+        workspacePaths: ['D:\\Projects\\AlphaApp'],
+      },
+      t0,
+    );
+
+    // Default cluster falls back to projectName with hasCustomRoomName: false
+    const initial = store.getSnapshot({ now: t0 });
+    expect(initial.clusters[0]).toMatchObject({
+      rootId: 'room-root-1',
+      projectName: 'AlphaApp',
+      roomName: 'AlphaApp',
+      hasCustomRoomName: false,
+    });
+
+    // Rejects invalid / prototype-pollution rootIds
+    onChange.mockClear();
+    expect(store.setRoomName('', 'Lab')).toBe(false);
+    expect(store.setRoomName('__proto__', 'Lab')).toBe(false);
+    expect(store.setRoomName('constructor', 'Lab')).toBe(false);
+    expect(onChange).not.toHaveBeenCalled();
+
+    // Sets custom room name with trimming and 40-char cap
+    const longName = `   ${'R'.repeat(55)}   `;
+    expect(store.setRoomName('room-root-1', longName)).toBe(true);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const renamed = store.getSnapshot({ now: t0 + 100 });
+    expect(renamed.clusters[0]).toMatchObject({
+      roomName: 'R'.repeat(40),
+      hasCustomRoomName: true,
+    });
+
+    // Persists through getBuildingConfig() -> normalizeBuildingConfig() -> new StateStore
+    const config = store.getBuildingConfig();
+    expect(config.roomNames).toEqual({ 'room-root-1': 'R'.repeat(40) });
+    const normalized = normalizeBuildingConfig({
+      ...config,
+      roomNames: {
+        'room-root-1': '  War Room  ',
+        '__proto__': 'evil',
+        'empty-room': '   ',
+      },
+    });
+    expect(normalized.roomNames).toEqual({ 'room-root-1': 'War Room' });
+
+    const restoredStore = new StateStore({ initialBuilding: normalized });
+    restoredStore.applyHookEvent(
+      {
+        hookEventName: 'SessionStart',
+        conversationId: 'room-root-1',
+        workspacePaths: ['D:\\Projects\\AlphaApp'],
+      },
+      t0 + 200,
+    );
+    expect(restoredStore.getSnapshot({ now: t0 + 200 }).clusters[0]).toMatchObject({
+      roomName: 'War Room',
+      hasCustomRoomName: true,
+    });
+
+    // Resetting with null or empty string reverts back to projectName
+    expect(restoredStore.setRoomName('room-root-1', null)).toBe(true);
+    expect(restoredStore.getSnapshot({ now: t0 + 300 }).clusters[0]).toMatchObject({
+      roomName: 'AlphaApp',
+      hasCustomRoomName: false,
+    });
+    expect(restoredStore.getBuildingConfig().roomNames).toEqual({});
+
+    expect(restoredStore.setRoomName('room-root-1', 'Temp Room')).toBe(true);
+    expect(restoredStore.setRoomName('room-root-1', '   ')).toBe(true);
+    expect(restoredStore.getSnapshot({ now: t0 + 400 }).clusters[0]).toMatchObject({
+      roomName: 'AlphaApp',
+      hasCustomRoomName: false,
+    });
+  });
 });
 
 describe('DemoSimulator', () => {
@@ -914,6 +998,23 @@ describe('DemoSimulator', () => {
       toolName: 'run_command',
       title: 'Butuh Izin di Luar Sandbox',
       detail: 'git push origin main',
+    });
+
+    // DemoSimulator.setRoomName updates and resets roomName cleanly
+    expect(sim.setRoomName('__proto__', 'Bad')).toBe(false);
+    expect(sim.getSnapshot().clusters.find((c) => c.rootId === 'demo-lead-1')).toMatchObject({
+      roomName: '3D Workspace',
+      hasCustomRoomName: false,
+    });
+    expect(sim.setRoomName('demo-lead-1', '  Ruang Utama Demo  ')).toBe(true);
+    expect(sim.getSnapshot().clusters.find((c) => c.rootId === 'demo-lead-1')).toMatchObject({
+      roomName: 'Ruang Utama Demo',
+      hasCustomRoomName: true,
+    });
+    expect(sim.setRoomName('demo-lead-1', null)).toBe(true);
+    expect(sim.getSnapshot().clusters.find((c) => c.rootId === 'demo-lead-1')).toMatchObject({
+      roomName: '3D Workspace',
+      hasCustomRoomName: false,
     });
   });
 });

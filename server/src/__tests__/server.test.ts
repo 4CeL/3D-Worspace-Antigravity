@@ -516,4 +516,106 @@ describe('createOfficeServer', () => {
       await office2.close();
     }
   });
+
+  it('renames rooms via POST /api/room-name, persists across restarts, resets on null, and rejects invalid rootId with 400', async () => {
+    const brainDir = makeTempDir();
+    const buildingFilePath = path.join(makeTempDir(), 'building-config.json');
+    const office1 = await createOfficeServer({
+      port: 0,
+      host: '127.0.0.1',
+      brainDir,
+      buildingFilePath,
+    });
+
+    try {
+      await fetch(`http://127.0.0.1:${office1.port}/api/hook-event`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hookEventName: 'SessionStart',
+          conversationId: 'room-api-1',
+          workspacePaths: ['D:\\Projects\\RoomApp'],
+        }),
+      });
+
+      // Invalid / prototype-pollution rootId -> 400
+      const protoRes = await fetch(`http://127.0.0.1:${office1.port}/api/room-name`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rootId: '__proto__', name: 'Evil' }),
+      });
+      expect(protoRes.status).toBe(400);
+
+      const emptyRes = await fetch(`http://127.0.0.1:${office1.port}/api/room-name`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rootId: '   ', name: 'NoRoot' }),
+      });
+      expect(emptyRes.status).toBe(400);
+
+      // Valid room rename -> 200
+      const renameRes = await fetch(`http://127.0.0.1:${office1.port}/api/room-name`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rootId: 'room-api-1', name: '  Ruang Backend  ' }),
+      });
+      expect(renameRes.status).toBe(200);
+      expect(await renameRes.json()).toEqual({ ok: true });
+
+      const snap1Res = await fetch(`http://127.0.0.1:${office1.port}/api/snapshot`);
+      const snap1 = await snap1Res.json();
+      expect(snap1.clusters[0]).toMatchObject({
+        rootId: 'room-api-1',
+        roomName: 'Ruang Backend',
+        hasCustomRoomName: true,
+      });
+    } finally {
+      await office1.close();
+    }
+
+    // Restart server -> roomName persists in building-config.json
+    const office2 = await createOfficeServer({
+      port: 0,
+      host: '127.0.0.1',
+      brainDir,
+      buildingFilePath,
+    });
+    try {
+      await fetch(`http://127.0.0.1:${office2.port}/api/hook-event`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          hookEventName: 'SessionStart',
+          conversationId: 'room-api-1',
+          workspacePaths: ['D:\\Projects\\RoomApp'],
+        }),
+      });
+
+      const snap2Res = await fetch(`http://127.0.0.1:${office2.port}/api/snapshot`);
+      const snap2 = await snap2Res.json();
+      expect(snap2.clusters[0]).toMatchObject({
+        rootId: 'room-api-1',
+        roomName: 'Ruang Backend',
+        hasCustomRoomName: true,
+      });
+
+      // Reset via null -> reverts to projectName
+      const resetRes = await fetch(`http://127.0.0.1:${office2.port}/api/room-name`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rootId: 'room-api-1', name: null }),
+      });
+      expect(resetRes.status).toBe(200);
+
+      const snap3Res = await fetch(`http://127.0.0.1:${office2.port}/api/snapshot`);
+      const snap3 = await snap3Res.json();
+      expect(snap3.clusters[0]).toMatchObject({
+        rootId: 'room-api-1',
+        roomName: 'RoomApp',
+        hasCustomRoomName: false,
+      });
+    } finally {
+      await office2.close();
+    }
+  });
 });

@@ -52,6 +52,22 @@ export interface DeskPlacement {
   rotationY: number;
 }
 
+export interface RoomFocusPose {
+  pos: [number, number, number];
+  target: [number, number, number];
+}
+
+/**
+ * Computes a front-on centered camera pose framing a Glass Suite & shared conference table.
+ */
+export function computeRoomFocusPose(center: [number, number, number]): RoomFocusPose {
+  const [cx, cy, cz] = center;
+  return {
+    target: [cx, cy + 0.85, cz],
+    pos: [cx, cy + 12.05, cz + 11.8],
+  };
+}
+
 export interface ClusterPlacement {
   rootId: string;
   floorId: string;
@@ -59,6 +75,8 @@ export interface ClusterPlacement {
   doorPosition?: [number, number];
   table?: SharedTableSpec;
   projectName: string;
+  roomName: string;
+  hasCustomRoomName: boolean;
   title: string;
   center: [number, number, number];
   rugWidth: number;
@@ -332,6 +350,8 @@ export function computeOfficeLayout(
         doorPosition: [suite.doorPosition[0], suite.doorPosition[1]],
         table,
         projectName: cluster.projectName,
+        roomName: cluster.roomName || cluster.projectName,
+        hasCustomRoomName: Boolean(cluster.hasCustomRoomName),
         title: cluster.title,
         center: [suite.center[0], y, suite.center[2]],
         rugWidth: suite.width - 0.85,

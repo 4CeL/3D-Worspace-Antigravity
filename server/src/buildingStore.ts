@@ -33,6 +33,7 @@ export function createDefaultBuildingConfig(): BuildingConfig {
     floors: [{ id: DEFAULT_FLOOR_ID, index: 1, name: 'Lantai 1', theme: 'engineering' }],
     teamFloors: {},
     hiddenAgents: [],
+    roomNames: {},
   };
 }
 
@@ -40,7 +41,12 @@ export function normalizeBuildingConfig(raw: unknown): BuildingConfig {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return createDefaultBuildingConfig();
   }
-  const obj = raw as { floors?: unknown; teamFloors?: unknown; hiddenAgents?: unknown };
+  const obj = raw as {
+    floors?: unknown;
+    teamFloors?: unknown;
+    hiddenAgents?: unknown;
+    roomNames?: unknown;
+  };
   const rawFloors = Array.isArray(obj.floors) ? obj.floors : [];
 
   const seenIds = new Set<string>();
@@ -92,7 +98,21 @@ export function normalizeBuildingConfig(raw: unknown): BuildingConfig {
     }
   }
 
-  return { floors, teamFloors: { ...teamFloors }, hiddenAgents };
+  const roomNames: Record<string, string> = Object.create(null);
+  if (obj.roomNames && typeof obj.roomNames === 'object' && !Array.isArray(obj.roomNames)) {
+    let count = 0;
+    for (const [rootId, rawName] of Object.entries(obj.roomNames as Record<string, unknown>)) {
+      if (count >= MAX_TEAM_FLOORS) break;
+      const cleanRoot = typeof rootId === 'string' ? rootId.trim() : '';
+      const cleanName = typeof rawName === 'string' ? rawName.trim().slice(0, 40) : '';
+      if (isSafeObjectKey(cleanRoot) && cleanName) {
+        roomNames[cleanRoot] = cleanName;
+        count += 1;
+      }
+    }
+  }
+
+  return { floors, teamFloors: { ...teamFloors }, hiddenAgents, roomNames: { ...roomNames } };
 }
 
 export function loadBuildingConfig(filePath: string): BuildingConfig {

@@ -306,12 +306,15 @@ export async function createOfficeServer(
         sendJson(res, 400, { ok: false, error: 'agentId is required' });
         return;
       }
-      const name =
-        body.name === null || body.name === undefined
-          ? null
-          : typeof body.name === 'string'
-            ? body.name
-            : null;
+      if (
+        body.name !== null &&
+        body.name !== undefined &&
+        typeof body.name !== 'string'
+      ) {
+        sendJson(res, 400, { ok: false, error: 'Invalid name' });
+        return;
+      }
+      const name = body.name === null || body.name === undefined ? null : body.name;
 
       if (demoMode && agentId.startsWith('demo-')) {
         demoSimulator.setAgentAlias(agentId, name);
@@ -418,6 +421,35 @@ export async function createOfficeServer(
         : stateStore.setTeamFloor(rootId, floorId);
       if (!ok) {
         sendJson(res, 400, { ok: false, error: 'Invalid rootId or floorId' });
+        return;
+      }
+      if (!persistBuildingOrFail()) return;
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/room-name') {
+      const body = await requireJsonObjectBody();
+      if (!body) return;
+      const rootId = typeof body.rootId === 'string' ? body.rootId.trim() : '';
+      if (!isSafeObjectKey(rootId)) {
+        sendJson(res, 400, { ok: false, error: 'Invalid rootId' });
+        return;
+      }
+      if (
+        body.name !== null &&
+        body.name !== undefined &&
+        typeof body.name !== 'string'
+      ) {
+        sendJson(res, 400, { ok: false, error: 'Invalid name' });
+        return;
+      }
+      const name = body.name === null || body.name === undefined ? null : body.name;
+      const ok = demoMode
+        ? demoSimulator.setRoomName(rootId, name)
+        : stateStore.setRoomName(rootId, name);
+      if (!ok) {
+        sendJson(res, 400, { ok: false, error: 'Invalid rootId' });
         return;
       }
       if (!persistBuildingOrFail()) return;

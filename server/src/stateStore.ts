@@ -137,6 +137,7 @@ export class StateStore {
   private readonly customAliases = new Map<string, string>();
   private readonly floors: FloorConfig[] = [];
   private readonly teamFloors = new Map<string, string>();
+  private readonly roomNames = new Map<string, string>();
   private readonly failedGhostIds = new Set<string>();
   private readonly hiddenAgents = new Set<string>();
   private readonly recentDedup = new Map<string, { timestamp: number; source: 'hook' | 'transcript' }>();
@@ -162,6 +163,14 @@ export class StateStore {
     this.floors.push(...building.floors);
     for (const [rootId, floorId] of Object.entries(building.teamFloors)) {
       this.teamFloors.set(rootId, floorId);
+    }
+    if (building.roomNames) {
+      for (const [rootId, roomName] of Object.entries(building.roomNames)) {
+        const trimmed = typeof roomName === 'string' ? roomName.trim().slice(0, 40) : '';
+        if (isSafeObjectKey(rootId) && trimmed) {
+          this.roomNames.set(rootId, trimmed);
+        }
+      }
     }
     if (Array.isArray(building.hiddenAgents)) {
       for (const agentId of building.hiddenAgents) {
@@ -262,6 +271,23 @@ export class StateStore {
     return prevCount;
   }
 
+  setRoomName(rootId: string, name: string | null): boolean {
+    const trimmedRoot = typeof rootId === 'string' ? rootId.trim() : '';
+    if (!isSafeObjectKey(trimmedRoot)) return false;
+    const trimmedName = typeof name === 'string' ? name.trim().slice(0, 40) : '';
+    if (trimmedName) {
+      if (!this.roomNames.has(trimmedRoot) && this.roomNames.size >= MAX_TEAM_FLOORS) {
+        const oldestKey = this.roomNames.keys().next().value;
+        if (oldestKey) this.roomNames.delete(oldestKey);
+      }
+      this.roomNames.set(trimmedRoot, trimmedName);
+    } else {
+      this.roomNames.delete(trimmedRoot);
+    }
+    this.emitChange();
+    return true;
+  }
+
   getBuildingConfig(): BuildingConfig {
     const teamFloors: Record<string, string> = {};
     for (const [k, v] of this.teamFloors.entries()) {
@@ -269,10 +295,17 @@ export class StateStore {
         teamFloors[k] = v;
       }
     }
+    const roomNames: Record<string, string> = {};
+    for (const [k, v] of this.roomNames.entries()) {
+      if (isSafeObjectKey(k) && v) {
+        roomNames[k] = v;
+      }
+    }
     return {
       floors: this.floors.map((f) => ({ ...f })),
       teamFloors,
       hiddenAgents: Array.from(this.hiddenAgents),
+      roomNames,
     };
   }
 
@@ -929,9 +962,12 @@ export class StateStore {
           ? assignedFloorId
           : this.floors[0].id;
 
+      const customRoomName = this.roomNames.get(rootId);
       clusters.push({
         rootId,
         projectName,
+        roomName: customRoomName || projectName,
+        hasCustomRoomName: Boolean(customRoomName),
         workspacePath,
         title: leadAlias || lead.displayName,
         leadAgentId: lead.id,

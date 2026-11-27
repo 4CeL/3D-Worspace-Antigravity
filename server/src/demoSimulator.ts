@@ -89,6 +89,7 @@ export class DemoSimulator {
     ['demo-lead-1', 'demo-floor-1'],
     ['demo-lead-2', 'demo-floor-2'],
   ]);
+  private readonly roomNames = new Map<string, string>();
   private readonly hiddenAgents = new Set<string>();
   private snapshot: OfficeSnapshot;
 
@@ -154,6 +155,23 @@ export class DemoSimulator {
       if (oldestKey) this.teamFloors.delete(oldestKey);
     }
     this.teamFloors.set(trimmedRoot, floorId);
+    this.snapshot = this.buildSnapshot(Date.now());
+    return true;
+  }
+
+  setRoomName(rootId: string, name: string | null): boolean {
+    const trimmedRoot = typeof rootId === 'string' ? rootId.trim() : '';
+    if (!isSafeObjectKey(trimmedRoot)) return false;
+    const trimmedName = typeof name === 'string' ? name.trim().slice(0, 40) : '';
+    if (trimmedName) {
+      if (!this.roomNames.has(trimmedRoot) && this.roomNames.size >= MAX_TEAM_FLOORS) {
+        const oldestKey = this.roomNames.keys().next().value;
+        if (oldestKey) this.roomNames.delete(oldestKey);
+      }
+      this.roomNames.set(trimmedRoot, trimmedName);
+    } else {
+      this.roomNames.delete(trimmedRoot);
+    }
     this.snapshot = this.buildSnapshot(Date.now());
     return true;
   }
@@ -499,9 +517,12 @@ export class DemoSimulator {
       const visibleIds = rc.agentIds.filter((id) => !this.hiddenAgents.has(id));
       if (visibleIds.length === 0) continue;
       const leadId = visibleIds[0];
+      const customRoomName = this.roomNames.get(rc.rootId);
       clusters.push({
         rootId: rc.rootId,
         projectName: rc.projectName,
+        roomName: customRoomName || rc.projectName,
+        hasCustomRoomName: Boolean(customRoomName),
         workspacePath: rc.workspacePath,
         title: allAgents[leadId].displayName,
         leadAgentId: leadId,

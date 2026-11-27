@@ -1,7 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import type { OfficeSnapshot } from '@office/shared';
-import { FLOOR_HEIGHT, computeOfficeLayout } from './officeLayout';
+import {
+  FLOOR_HEIGHT,
+  computeOfficeLayout,
+  type ClusterPlacement,
+  type RoomFocusPose,
+} from './officeLayout';
 import { OfficeRoom } from './OfficeRoom';
 import { TeamClusterGroup } from './TeamClusterGroup';
 import { ConnectionArcs } from './ConnectionArcs';
@@ -35,9 +40,13 @@ interface OfficeCanvasProps {
   floorFocusNonce: number;
   focusAgentId: string | null;
   focusNonce: number;
+  roomFocusPose?: RoomFocusPose | null;
+  roomFocusNonce?: number;
   resetNonce: number;
   onSelectAgent: (agentId: string | null) => void;
   onFocusFloor: (floorIndex: number) => void;
+  onFocusRoom?: (cluster: ClusterPlacement) => void;
+  onRenameRoom?: (rootId: string, name: string | null) => void;
 }
 
 export const OfficeCanvas: React.FC<OfficeCanvasProps> = ({
@@ -48,9 +57,13 @@ export const OfficeCanvas: React.FC<OfficeCanvasProps> = ({
   floorFocusNonce,
   focusAgentId,
   focusNonce,
+  roomFocusPose = null,
+  roomFocusNonce = 0,
   resetNonce,
   onSelectAgent,
   onFocusFloor,
+  onFocusRoom,
+  onRenameRoom,
 }) => {
   const layout = useMemo(
     () => computeOfficeLayout(snapshot.clusters, snapshot.agents, snapshot.floors),
@@ -191,6 +204,8 @@ export const OfficeCanvas: React.FC<OfficeCanvasProps> = ({
                   showLabels={showLabels}
                   roamingAgentIds={roamingAgentIds}
                   onSelectAgent={(id) => onSelectAgent(id)}
+                  onFocusRoom={onFocusRoom}
+                  onRenameRoom={onRenameRoom}
                 />
               ))}
             </React.Fragment>
@@ -221,6 +236,8 @@ export const OfficeCanvas: React.FC<OfficeCanvasProps> = ({
           floorFocusNonce={floorFocusNonce}
           focusTarget={focusTarget}
           focusNonce={focusNonce}
+          roomFocusPose={roomFocusPose}
+          roomFocusNonce={roomFocusNonce}
           resetNonce={resetNonce}
         />
       </Canvas>

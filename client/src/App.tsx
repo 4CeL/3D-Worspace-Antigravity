@@ -2,6 +2,11 @@ import React, { useMemo, useState } from 'react';
 import { Eye, FlaskConical, Sparkles } from 'lucide-react';
 import { useOfficeSocket } from './hooks/useOfficeSocket';
 import { OfficeCanvas } from './scene/OfficeCanvas';
+import {
+  computeRoomFocusPose,
+  type ClusterPlacement,
+  type RoomFocusPose,
+} from './scene/officeLayout';
 import { TopBar } from './ui/TopBar';
 import { InspectorDrawer } from './ui/InspectorDrawer';
 import { FloorElevator } from './ui/FloorElevator';
@@ -16,6 +21,7 @@ export const App: React.FC = () => {
     setRecency,
     toggleDemo,
     renameAgent,
+    renameRoom,
     hideAgent,
     unhideAllAgents,
     addFloor,
@@ -31,6 +37,8 @@ export const App: React.FC = () => {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [focusAgentId, setFocusAgentId] = useState<string | null>(null);
   const [focusNonce, setFocusNonce] = useState(0);
+  const [roomFocusPose, setRoomFocusPose] = useState<RoomFocusPose | null>(null);
+  const [roomFocusNonce, setRoomFocusNonce] = useState(0);
   const [focusedFloorIndex, setFocusedFloorIndex] = useState<number | null>(null);
   const [floorFocusNonce, setFloorFocusNonce] = useState(0);
   const [resetNonce, setResetNonce] = useState(0);
@@ -126,6 +134,16 @@ export const App: React.FC = () => {
     setFocusNonce((n) => n + 1);
   };
 
+  const handleFocusRoom = (cluster: ClusterPlacement) => {
+    // Cutaway hide floors above this room's floor WITHOUT bumping floorFocusNonce
+    const targetFloor = floors.find((f) => f.id === cluster.floorId);
+    if (targetFloor) {
+      setFocusedFloorIndex(targetFloor.index);
+    }
+    setRoomFocusPose(computeRoomFocusPose(cluster.center));
+    setRoomFocusNonce((n) => n + 1);
+  };
+
   const handleAddFloor = async () => {
     const created = await addFloor();
     if (created) {
@@ -170,9 +188,13 @@ export const App: React.FC = () => {
         floorFocusNonce={floorFocusNonce}
         focusAgentId={focusAgentId}
         focusNonce={focusNonce}
+        roomFocusPose={roomFocusPose}
+        roomFocusNonce={roomFocusNonce}
         resetNonce={resetNonce}
         onSelectAgent={handleSelectAgent}
         onFocusFloor={(idx) => handleSelectFloor(idx)}
+        onFocusRoom={handleFocusRoom}
+        onRenameRoom={(rootId, name) => void renameRoom(rootId, name)}
       />
 
       <TopBar
@@ -200,11 +222,13 @@ export const App: React.FC = () => {
         }}
         onToggleDemo={() => {
           setFocusedFloorIndex(null);
+          setRoomFocusPose(null);
           setFloorFocusNonce((n) => n + 1);
           void toggleDemo(!snapshot.demoMode);
         }}
         onResetCamera={() => {
           setFocusAgentId(null);
+          setRoomFocusPose(null);
           setResetNonce((n) => n + 1);
         }}
       />
